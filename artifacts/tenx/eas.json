@@ -1,0 +1,56 @@
+{
+  "cli": {
+    "version": ">=18.0.0",
+    "appVersionSource": "remote"
+  },
+  "build": {
+    "preview": {
+      "distribution": "internal",
+      "channel": "preview",
+      "android": {
+        "buildType": "apk"
+      },
+      "env": {
+        "EXPO_PUBLIC_FIREBASE_API_KEY": "AIzaSyAhLwUI_5z4G66whHoRZBCehooTFKyJG1o",
+        "EXPO_PUBLIC_FIREBASE_AUTH_DOMAIN": "topter-325a2.firebaseapp.com",
+        "EXPO_PUBLIC_FIREBASE_PROJECT_ID": "topter-325a2",
+        "EXPO_PUBLIC_FIREBASE_APP_ID": "1:372157016133:android:e64ab537cb26564a325b2c",
+        "EXPO_PUBLIC_REVENUECAT_ANDROID_API_KEY": "goog_UagmQcGiNOttkuGeEMsDPOzeYDG",
+        "EXPO_PUBLIC_REVENUECAT_IOS_API_KEY": "YOUR_REVENUECAT_IOS_API_KEY",
+        "EXPO_PUBLIC_REVENUECAT_TEST_API_KEY": "test_AefstNTaIzSkurSMltNRZeZlHmb"
+      }
+    },
+    "preview-aab": {
+      "distribution": "internal",
+      "channel": "preview-aab",
+      "android": {
+        "buildType": "app-bundle"
+      },
+      "env": {
+        "EXPO_PUBLIC_FIREBASE_API_KEY": "AIzaSyAhLwUI_5z4G66whHoRZBCehooTFKyJG1o",
+        "EXPO_PUBLIC_FIREBASE_AUTH_DOMAIN": "topter-325a2.firebaseapp.com",
+        "EXPO_PUBLIC_FIREBASE_PROJECT_ID": "topter-325a2",
+        "EXPO_PUBLIC_FIREBASE_APP_ID": "1:372157016133:android:e64ab537cb26564a325b2c",
+        "EXPO_PUBLIC_REVENUECAT_ANDROID_API_KEY": "goog_UagmQcGiNOttkuGeEMsDPOzeYDG",
+        "EXPO_PUBLIC_REVENUECAT_IOS_API_KEY": "YOUR_REVENUECAT_IOS_API_KEY",
+        "EXPO_PUBLIC_REVENUECAT_TEST_API_KEY": "test_AefstNTaIzSkurSMltNRZeZlHmb"
+      }
+    },
+    "production": {
+      "autoIncrement": true,
+      "channel": "production",
+      "env": {
+        "EXPO_PUBLIC_FIREBASE_API_KEY": "AIzaSyAhLwUI_5z4G66whHoRZBCehooTFKyJG1o",
+        "EXPO_PUBLIC_FIREBASE_AUTH_DOMAIN": "topter-325a2.firebaseapp.com",
+        "EXPO_PUBLIC_FIREBASE_PROJECT_ID": "topter-325a2",
+        "EXPO_PUBLIC_FIREBASE_APP_ID": "1:372157016133:android:e64ab537cb26564a325b2c",
+        "EXPO_PUBLIC_REVENUECAT_ANDROID_API_KEY": "goog_UagmQcGiNOttkuGeEMsDPOzeYDG",
+        "EXPO_PUBLIC_REVENUECAT_IOS_API_KEY": "YOUR_REVENUECAT_IOS_API_KEY",
+        "EXPO_PUBLIC_REVENUECAT_TEST_API_KEY": "test_AefstNTaIzSkurSMltNRZeZlHmb",
+        "EXPO_PUBLIC_ADMOB_ANDROID_APP_ID": "ca-app-pub-8963042908346749~6094172613",
+        "EXPO_PUBLIC_ADMOB_ANDROID_INTERSTITIAL_ID": "ca-app-pub-8963042908346749/8235600315",
+        "EXPO_PUBLIC_ADMOB_ANDROID_REWARDED_ID": "ca-app-pub-8963042908346749/4296355305"
+      }
+    }
+  }
+}

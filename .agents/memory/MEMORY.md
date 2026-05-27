@@ -1,0 +1,3 @@
+- [Cloud data sync with Firestore](firestore-sync.md) — topics and settings now sync to Firestore on every change; restored from cloud on login with AsyncStorage fallback.
+- [Production AdMob ID swap](admob-ids.md) — using Google demo/test IDs for closed testing; must revert to env vars before Play Store release.
+- [Timer alarm Android 12+ fix](timer-alarms.md) — uses AlarmManager.setExactAndAllowWhileIdle with USE_EXACT_ALARM permission.

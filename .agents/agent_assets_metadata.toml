@@ -1,0 +1,50 @@
+uploads = []
+outputs = []
+
+[[generated]]
+id = "aCd9zgcywYUWRVPjbycRg"
+uri = "file://artifacts/tenx/assets/images/icon.png"
+type = "image"
+title = "neurotick lightning tick icon"
+
+[[generated]]
+id = "OvG4AyxcpR_LzIgvGG3Z6"
+uri = "file://artifacts/neurotick-promo/public/images/bg1.png"
+type = "image"
+title = "indigo gradient noise"
+
+[[generated]]
+id = "JugnsFULBp1RuJ6hfM2vX"
+uri = "file://artifacts/neurotick-promo/public/images/bg2.png"
+type = "image"
+title = "violet fluid shapes"
+
+[[generated]]
+id = "SWt884gKLl5lWLNfSful9"
+uri = "file://artifacts/tenx/assets/images/logo.png"
+type = "image"
+title = "neurotick logo mark"
+
+[[generated]]
+id = "SnCB_tUM2sYVe-mXeK0Yi"
+uri = "file://artifacts/tenx/assets/images/icon-options/icon-option-1.png"
+type = "image"
+title = "Book shield study app icon"
+
+[[generated]]
+id = "3oy01QgjFQVOEoPQXCUOC"
+uri = "file://artifacts/tenx/assets/images/icon-options/icon-option-2.png"
+type = "image"
+title = "Geometric T learning blocks icon"
+
+[[generated]]
+id = "RXGK2zAei6BIBP6bw0Q1z"
+uri = "file://artifacts/tenx/assets/images/icon-options/icon-option-3.png"
+type = "image"
+title = "Brain lightbulb exam icon"
+
+[[generated]]
+id = "4Xy3uWZ3jUJry9kH9Uo5Z"
+uri = "file://artifacts/tenx/assets/images/feature-graphic.png"
+type = "image"
+title = "Topter Play Store feature graphic"

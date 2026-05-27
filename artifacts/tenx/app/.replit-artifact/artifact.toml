@@ -1,0 +1,27 @@
+kind = "mobile"
+previewPath = "/"
+title = "TenX"
+version = "1.0.0"
+id = "artifacts/tenx"
+router = "expo-domain"
+
+[[integratedSkills]]
+name = "expo"
+version = "1.0.0"
+
+[[services]]
+ensurePreviewReachable = "/status"
+name = "expo"
+paths = [ "/" ]
+localPort = 19854
+
+[services.development]
+run = "pnpm --filter @workspace/tenx run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/tenx", "run", "build" ]
+run = [ "pnpm", "--filter", "@workspace/tenx", "run", "serve" ]
+
+[services.env]
+PORT = "19854"
+BASE_PATH = "/"

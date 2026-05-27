@@ -1,0 +1,19 @@
+{
+  "name": "@workspace/scripts",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "hello": "tsx ./src/hello.ts",
+    "seed:revenuecat": "tsx ./src/seedRevenueCat.ts",
+    "validate:revenuecat": "tsx ./src/validateRevenueCat.ts",
+    "seed:topter": "tsx ./src/seedTopterRevenueCat.ts",
+    "check:topter": "tsx ./src/checkTopterProject.ts",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "devDependencies": {
+    "@replit/revenuecat-sdk": "^4.0.0",
+    "@types/node": "catalog:",
+    "tsx": "catalog:"
+  }
+}

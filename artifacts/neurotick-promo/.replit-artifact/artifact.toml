@@ -1,0 +1,31 @@
+kind = "video"
+previewPath = "/neurotick-promo/"
+title = "NeuroTick Promo Video"
+version = "1.0.0"
+id = "artifacts/neurotick-promo"
+router = "path"
+
+[[integratedSkills]]
+name = "video-js"
+version = "1.0.0"
+
+[[services]]
+name = "web"
+paths = [ "/neurotick-promo/" ]
+localPort = 24299
+
+[services.development]
+run = "pnpm --filter @workspace/neurotick-promo run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/neurotick-promo", "run", "build" ]
+publicDir = "artifacts/neurotick-promo/dist/public"
+serve = "static"
+
+[[services.production.rewrites]]
+from = "/*"
+to = "/index.html"
+
+[services.env]
+PORT = "24299"
+BASE_PATH = "/neurotick-promo/"
