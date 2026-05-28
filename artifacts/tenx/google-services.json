@@ -12,7 +12,20 @@
           "package_name": "com.topter.app"
         }
       },
-      "oauth_client": [],
+      "oauth_client": [
+        {
+          "client_id": "372157016133-qcli4nbbqufm6gvr3f6g7f75bs21a0p6.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.topter.app",
+            "certificate_hash": "04fa1ace4d1c34987358268c7846bbd81d2f4e12"
+          }
+        },
+        {
+          "client_id": "372157016133-41uc72ralfb4ti5h8m2ivs67qoklptde.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
       "api_key": [
         {
           "current_key": "AIzaSyAhLwUI_5z4G66whHoRZBCehooTFKyJG1o"
@@ -20,7 +33,12 @@
       ],
       "services": {
         "appinvite_service": {
-          "other_platform_oauth_client": []
+          "other_platform_oauth_client": [
+            {
+              "client_id": "372157016133-41uc72ralfb4ti5h8m2ivs67qoklptde.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
         }
       }
     }

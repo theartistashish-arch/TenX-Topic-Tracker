@@ -67,6 +67,13 @@ catalog:
 
 autoInstallPeers: false
 
+peerDependencyRules:
+  allowedVersions:
+    # @firebase/auth declares peer on async-storage ^1.18.1 but v2 is fully compatible
+    '@firebase/auth>@react-native-async-storage/async-storage': '2'
+    # tailwindcss-animate@1.0.7 peer range ">=3.0.0" is a false positive with tailwindcss v4
+    'tailwindcss-animate>tailwindcss': '4'
+
 onlyBuiltDependencies:
   - '@swc/core'
   - esbuild
