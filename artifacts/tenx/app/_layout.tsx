@@ -27,7 +27,7 @@ import { useColors } from "@/hooks/useColors";
 import { useReviewPrompt } from "@/hooks/useReviewPrompt";
 import { AdsProvider } from "@/lib/ads";
 import { recordAppOpen } from "@/lib/absenceDetection";
-import { REVISION_NOTIF_PREFIX, isTimerNotification, scheduleDailyNotifications, ensureTimerChannel } from "@/lib/notifications";
+import { REVISION_NOTIF_PREFIX, isTimerNotification, scheduleDailyNotifications, scheduleComebackNotification, ensureTimerChannel } from "@/lib/notifications";
 import { initializeRevenueCat, SubscriptionProvider } from "@/lib/revenuecat";
 
 // Show revision reminders in foreground; suppress timer alarms (handled in-app).
@@ -67,16 +67,24 @@ function NotificationScheduler() {
   const { topics } = useTopics();
   const didMount = useRef(false);
 
-  // Schedule on first mount (app open) and whenever settings change.
+  // Schedule on first mount and whenever settings change (force = true to bypass throttle).
   useEffect(() => {
     if (Platform.OS === "web") return;
-    const force = didMount.current; // force reschedule on settings changes
+    const force = didMount.current;
     didMount.current = true;
     void scheduleDailyNotifications(topics, settings, force);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [settings.remindersEnabled, settings.morningReminderEnabled, settings.eveningReminderEnabled, settings.streakAlertsEnabled, settings.motivationalInsightsEnabled]);
 
-  // Re-schedule when app comes back to foreground (covers day changes, new topics).
+  // Re-schedule when topics change (e.g. after recording a session).
+  // Throttled — won't actually reschedule within 6 h unless the above fires.
+  useEffect(() => {
+    if (Platform.OS === "web") return;
+    void scheduleDailyNotifications(topics, settings, false);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [topics]);
+
+  // Re-schedule when app comes back to foreground (covers day changes).
   useEffect(() => {
     if (Platform.OS === "web") return;
     const sub = AppState.addEventListener("change", (state: AppStateStatus) => {
@@ -125,11 +133,20 @@ function NotificationDeepLink() {
 // first open atomically (read-then-write) to ensure accurate absence counting.
 
 function AppOpenTracker() {
+  // Schedule comeback on first launch to start the 2-day countdown.
+  useEffect(() => {
+    if (Platform.OS !== "web") {
+      void scheduleComebackNotification();
+    }
+  }, []);
+
   useEffect(() => {
     if (Platform.OS === "web") return;
     const sub = AppState.addEventListener("change", (state: AppStateStatus) => {
       if (state === "active") {
         void recordAppOpen();
+        // Reset the 2-day comeback countdown on every foreground.
+        void scheduleComebackNotification();
       }
     });
     return () => sub.remove();
@@ -263,6 +280,13 @@ export default function RootLayout() {
       setAppReady(true);
     }
   }, [fontsLoaded, fontError, assetsLoaded]);
+
+  // Request notification permission once on first launch (after app is ready).
+  // This covers users who never open the focus timer.
+  useEffect(() => {
+    if (!appReady || Platform.OS === "web") return;
+    Notifications.requestPermissionsAsync().catch(() => {});
+  }, [appReady]);
 
   // ── OTA updates ─────────────────────────────────────────────────────────
   useEffect(() => {

@@ -3,7 +3,7 @@ import * as Notifications from "expo-notifications";
 import { Linking, Platform } from "react-native";
 
 import { UserSettings } from "@/contexts/SettingsContext";
-import { Topic, isDueToday, isOverdue } from "@/contexts/TopicsContext";
+import { Topic } from "@/contexts/TopicsContext";
 import { buildDailyPlan, formatHM } from "@/lib/dailyPlan";
 import { buildStreak } from "@/lib/streak";
 
@@ -11,11 +11,20 @@ import { buildStreak } from "@/lib/streak";
 
 export const REVISION_NOTIF_PREFIX = "revision-";
 export const TIMER_NOTIF_PREFIX = "timer-";
+export const TOPIC_NOTIF_PREFIX = "topic-";
 const SCHEDULE_KEY = "tenx.notif.lastScheduled";
+const MILESTONE_KEY = "tenx.notif.milestonesNotified";
 /** Re-schedule at most once every 6 hours to avoid unnecessary churn. */
 const THROTTLE_MS = 6 * 60 * 60 * 1000;
 /** How many days ahead to schedule. */
 const DAYS_AHEAD = 7;
+const DAY_MS = 24 * 60 * 60 * 1000;
+const MILESTONES = [10, 25, 50, 100];
+
+function toDateStr(ts: number): string {
+  const d = new Date(ts);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
 
 // ── Identifier helpers ─────────────────────────────────────────────────────
 
@@ -37,9 +46,8 @@ export async function ensureRevisionChannel(): Promise<void> {
 }
 
 /**
- * Timer alarm channel — must be IMPORTANCE_MAX so that the scheduled
- * notification rings and vibrates even when the screen is off / locked.
- * Call this before scheduling any timer notification.
+ * Timer alarm channel — IMPORTANCE_MAX so the notification rings and vibrates
+ * even when the screen is off / locked.
  */
 export async function ensureTimerChannel(): Promise<void> {
   if (Platform.OS !== "android") return;
@@ -51,7 +59,6 @@ export async function ensureTimerChannel(): Promise<void> {
     sound: "default",
     enableVibrate: true,
     showBadge: false,
-    // Show on lock screen and bypass DND so the alarm rings even in silent / do-not-disturb mode.
     lockscreenVisibility: Notifications.AndroidNotificationVisibility.PUBLIC,
     bypassDnd: true,
   });
@@ -90,33 +97,24 @@ export async function openExactAlarmSettings(): Promise<void> {
       { key: "android.provider.extra.APP_PACKAGE", value: "com.topter.app" },
     ]);
   } catch {
-    // Fallback: open general app settings
     await Linking.openSettings().catch(() => {});
   }
 }
 
-/**
- * Full permission health check for notifications.
- * Returns a simple status string the UI can display.
- */
 export async function checkAllNotificationPermissions(): Promise<
   "ok" | "needs-permission" | "needs-exact-alarm" | "blocked"
 > {
   if (Platform.OS === "web") return "ok";
-
-  // 1. Check notification permission
   const { status } = await Notifications.getPermissionsAsync();
   if (status === "denied") return "blocked";
   if (status !== "granted") return "needs-permission";
-
-  // 2. Check exact alarm permission (Android 12+)
   const exactOk = await canScheduleExactAlarmsAsync();
   if (!exactOk) return "needs-exact-alarm";
-
   return "ok";
 }
 
-// ── Cancel ─────────────────────────────────────────────────────────────────
+// ── Cancel bulk revision notifications ────────────────────────────────────
+// Only cancels revision-* prefixed notifications; does NOT touch topic-* ones.
 
 export async function cancelRevisionNotifications(): Promise<void> {
   if (Platform.OS === "web") return;
@@ -124,10 +122,151 @@ export async function cancelRevisionNotifications(): Promise<void> {
   await Promise.all(
     scheduled
       .filter((n) => n.identifier.startsWith(REVISION_NOTIF_PREFIX))
-      .map((n) =>
-        Notifications.cancelScheduledNotificationAsync(n.identifier),
-      ),
+      .map((n) => Notifications.cancelScheduledNotificationAsync(n.identifier)),
   );
+}
+
+// ── Per-topic revision reminder ────────────────────────────────────────────
+
+/**
+ * Schedule a "📚 Revision due" notification at 8 AM on the topic's next due
+ * date. Safe to call multiple times — cancels the previous one for that topic.
+ * Called from receipt.tsx immediately after recordSession().
+ */
+export async function scheduleTopicRevisionNotification(
+  topicId: string,
+  topicName: string,
+  subject: string,
+  nextReviewAt: number,
+): Promise<void> {
+  if (Platform.OS === "web") return;
+  const id = `${TOPIC_NOTIF_PREFIX}${topicId}`;
+  await Notifications.cancelScheduledNotificationAsync(id).catch(() => {});
+  await ensureRevisionChannel();
+  const fireDate = new Date(nextReviewAt);
+  fireDate.setHours(8, 0, 0, 0);
+  if (fireDate.getTime() <= Date.now() + 60_000) return;
+  await Notifications.scheduleNotificationAsync({
+    identifier: id,
+    content: {
+      title: `📚 Revision due: ${topicName}`,
+      body: `Your ${subject} topic is ready for review today. 10 mins is all it takes!`,
+      data: { screen: "/(tabs)/home" },
+      sound: "default",
+      priority: Notifications.AndroidNotificationPriority.HIGH,
+    },
+    trigger: {
+      type: Notifications.SchedulableTriggerInputTypes.DATE,
+      date: fireDate,
+      channelId: "revision",
+    },
+  }).catch(() => {});
+}
+
+export async function cancelTopicRevisionNotification(topicId: string): Promise<void> {
+  if (Platform.OS === "web") return;
+  await Notifications.cancelScheduledNotificationAsync(
+    `${TOPIC_NOTIF_PREFIX}${topicId}`,
+  ).catch(() => {});
+}
+
+// ── Streak guard helpers ───────────────────────────────────────────────────
+
+/**
+ * Cancel today's 8 PM and 9 PM streak guard notifications.
+ * Call this whenever the user records a study session so the guards don't
+ * fire even though the user has already studied.
+ */
+export async function cancelTodayStreakAlert(now: number = Date.now()): Promise<void> {
+  if (Platform.OS === "web") return;
+  const ds = toDateStr(now);
+  await Notifications.cancelScheduledNotificationAsync(
+    `${REVISION_NOTIF_PREFIX}streak-8pm-${ds}`,
+  ).catch(() => {});
+  await Notifications.cancelScheduledNotificationAsync(
+    `${REVISION_NOTIF_PREFIX}streak-9pm-${ds}`,
+  ).catch(() => {});
+}
+
+// ── Comeback notification ──────────────────────────────────────────────────
+
+const COMEBACK_ID = `${REVISION_NOTIF_PREFIX}comeback`;
+
+/**
+ * Schedule a "we miss you" notification for 9 AM, 2 days from now.
+ * Cancels any previously scheduled comeback first so the countdown resets
+ * on every app open.
+ */
+export async function scheduleComebackNotification(now: number = Date.now()): Promise<void> {
+  if (Platform.OS === "web") return;
+  const permitted = await requestRevisionPermission();
+  if (!permitted) return;
+  await ensureRevisionChannel();
+  await Notifications.cancelScheduledNotificationAsync(COMEBACK_ID).catch(() => {});
+  const fireDate = new Date(now + 2 * DAY_MS);
+  fireDate.setHours(9, 0, 0, 0);
+  if (fireDate.getTime() <= now) return;
+  await Notifications.scheduleNotificationAsync({
+    identifier: COMEBACK_ID,
+    content: {
+      title: "👋 Hey, we miss you!",
+      body: "Your topics are piling up. Come back and clear your backlog — just one session counts!",
+      data: { screen: "/(tabs)/home" },
+      sound: "default",
+      priority: Notifications.AndroidNotificationPriority.DEFAULT,
+    },
+    trigger: {
+      type: Notifications.SchedulableTriggerInputTypes.DATE,
+      date: fireDate,
+      channelId: "revision",
+    },
+  }).catch(() => {});
+}
+
+export async function cancelComebackNotification(): Promise<void> {
+  if (Platform.OS === "web") return;
+  await Notifications.cancelScheduledNotificationAsync(COMEBACK_ID).catch(() => {});
+}
+
+// ── Milestone notification ─────────────────────────────────────────────────
+
+/**
+ * Fire a celebration notification when total sessions hits 10 / 25 / 50 / 100.
+ * AsyncStorage prevents duplicate fires for the same milestone.
+ */
+export async function checkAndScheduleMilestoneNotification(
+  totalSessions: number,
+): Promise<void> {
+  if (Platform.OS === "web") return;
+  const hit = MILESTONES.find((m) => totalSessions === m);
+  if (!hit) return;
+  const raw = await AsyncStorage.getItem(MILESTONE_KEY).catch(() => null);
+  const notified: number[] = raw ? (JSON.parse(raw) as number[]) : [];
+  if (notified.includes(hit)) return;
+  const permitted = await requestRevisionPermission();
+  if (!permitted) return;
+  await ensureRevisionChannel();
+  // Fire 5 s after scheduling so the user has navigated home first.
+  const fireDate = new Date(Date.now() + 5_000);
+  await Notifications.scheduleNotificationAsync({
+    identifier: `${REVISION_NOTIF_PREFIX}milestone-${hit}`,
+    content: {
+      title: "🎉 Amazing milestone!",
+      body: `You've completed ${hit} study sessions on Topter. You're absolutely on fire! 🔥`,
+      data: { screen: "/(tabs)/home" },
+      sound: "default",
+      priority: Notifications.AndroidNotificationPriority.HIGH,
+    },
+    trigger: {
+      type: Notifications.SchedulableTriggerInputTypes.DATE,
+      date: fireDate,
+      channelId: "revision",
+    },
+  }).catch(() => {});
+  await AsyncStorage.setItem(
+    MILESTONE_KEY,
+    JSON.stringify([...notified, hit]),
+  ).catch(() => {});
 }
 
 // ── Message templates ──────────────────────────────────────────────────────
@@ -224,11 +363,7 @@ function insightBody(topics: Topic[]): string {
   return "Consistent revision beats last-minute cramming every time.";
 }
 
-// ── Payload builder ────────────────────────────────────────────────────────
-
-type Priority =
-  | "default"
-  | Notifications.AndroidNotificationPriority;
+// ── Payload builders ───────────────────────────────────────────────────────
 
 interface NotifPayload {
   title: string;
@@ -292,13 +427,16 @@ function buildEveningPayload(
 // ── Main scheduler ─────────────────────────────────────────────────────────
 
 /**
- * Schedule up to 2 notifications per day (morning + evening) for the next
- * DAYS_AHEAD days.  Skips if permissions are denied, web platform, or the
- * master `remindersEnabled` flag is off.
+ * Schedule notifications for the next DAYS_AHEAD days:
+ *   07:00  Morning motivation (motivationalInsightsEnabled)
+ *   08:00  Due-topics morning reminder (morningReminderEnabled)
+ *   19:00  Evening reminder / streak alert (eveningReminderEnabled / streakAlertsEnabled)
+ *   20:00  "Streak at risk" guard (streakAlertsEnabled)
+ *   21:00  Final streak guard (streakAlertsEnabled)
+ *   Sun 18:00  Weekly progress (motivationalInsightsEnabled)
  *
- * Throttled to once per THROTTLE_MS so frequent re-renders don't spam
- * the OS scheduler. Pass `force = true` to bypass the throttle (e.g. when
- * the user changes a setting).
+ * Throttled to once per THROTTLE_MS. Pass force=true to bypass (e.g. on
+ * settings change).
  */
 export async function scheduleDailyNotifications(
   topics: Topic[],
@@ -340,12 +478,48 @@ export async function scheduleDailyNotifications(
   const eveningEnabled =
     settings.eveningReminderEnabled !== false ||
     settings.streakAlertsEnabled !== false;
+  const streakAlertsOn = settings.streakAlertsEnabled !== false;
+  const motivationalOn = settings.motivationalInsightsEnabled === true;
+
+  // Weekly session count for the Sunday progress update
+  const weekAgo = now - 7 * DAY_MS;
+  const weeklyTopicCount = topics.filter((t) =>
+    (t.sessions ?? []).some((s) => s.startedAt >= weekAgo),
+  ).length;
 
   for (let day = 0; day < DAYS_AHEAD; day++) {
     const base = new Date(now);
     base.setDate(base.getDate() + day);
+    const dateStr = toDateStr(base.getTime());
 
-    // ── Morning (08:00) ────────────────────────────────────────────────────
+    // ── 07:00 Morning motivation ───────────────────────────────────────────
+    if (motivationalOn) {
+      const sevenAm = new Date(base);
+      sevenAm.setHours(7, 0, 0, 0);
+      if (sevenAm.getTime() > now + 60_000) {
+        await Notifications.scheduleNotificationAsync({
+          identifier: `${REVISION_NOTIF_PREFIX}motivation-7am-${dateStr}`,
+          content: {
+            title: "Good morning! 💪",
+            body:
+              dueCount > 0
+                ? `You have ${dueCount} topic${dueCount > 1 ? "s" : ""} due today. Let's crush it!`
+                : "Start strong — open Topter and keep your streak alive!",
+            data: { screen: "/(tabs)/home" },
+            sound: "default",
+            priority: Notifications.AndroidNotificationPriority.DEFAULT,
+            categoryIdentifier: "revision",
+          },
+          trigger: {
+            type: Notifications.SchedulableTriggerInputTypes.DATE,
+            date: sevenAm,
+            channelId: "revision",
+          },
+        }).catch(() => {});
+      }
+    }
+
+    // ── 08:00 Due-topics morning reminder ─────────────────────────────────
     if (morningEnabled) {
       const morning = new Date(base);
       morning.setHours(8, 0, 0, 0);
@@ -366,11 +540,11 @@ export async function scheduleDailyNotifications(
             date: morning,
             channelId: "revision",
           },
-        });
+        }).catch(() => {});
       }
     }
 
-    // ── Evening (19:00) ────────────────────────────────────────────────────
+    // ── 19:00 Evening reminder / streak summary ────────────────────────────
     if (eveningEnabled) {
       const evening = new Date(base);
       evening.setHours(19, 0, 0, 0);
@@ -381,7 +555,7 @@ export async function scheduleDailyNotifications(
           estMin,
           streak,
           settings.streakAlertsEnabled !== false,
-          settings.motivationalInsightsEnabled === true,
+          motivationalOn,
           topics,
         );
         if (payload) {
@@ -400,8 +574,90 @@ export async function scheduleDailyNotifications(
               date: evening,
               channelId: "revision",
             },
-          });
+          }).catch(() => {});
         }
+      }
+    }
+
+    // ── 20:00 "Streak at risk" guard ──────────────────────────────────────
+    // Cancelled by cancelTodayStreakAlert() when the user records a session.
+    if (streakAlertsOn) {
+      const eightPm = new Date(base);
+      eightPm.setHours(20, 0, 0, 0);
+      if (eightPm.getTime() > now + 60_000) {
+        await Notifications.scheduleNotificationAsync({
+          identifier: `${REVISION_NOTIF_PREFIX}streak-8pm-${dateStr}`,
+          content: {
+            title:
+              streak > 0
+                ? `🔥 Your ${streak}-day streak is at risk!`
+                : "Start your study streak today!",
+            body: "You haven't studied yet today. Open Topter to keep it alive!",
+            data: { screen: "/(tabs)/home" },
+            sound: "default",
+            priority: Notifications.AndroidNotificationPriority.HIGH,
+            categoryIdentifier: "revision",
+          },
+          trigger: {
+            type: Notifications.SchedulableTriggerInputTypes.DATE,
+            date: eightPm,
+            channelId: "revision",
+          },
+        }).catch(() => {});
+      }
+    }
+
+    // ── 21:00 Final streak guard ──────────────────────────────────────────
+    if (streakAlertsOn) {
+      const ninePm = new Date(base);
+      ninePm.setHours(21, 0, 0, 0);
+      if (ninePm.getTime() > now + 60_000) {
+        await Notifications.scheduleNotificationAsync({
+          identifier: `${REVISION_NOTIF_PREFIX}streak-9pm-${dateStr}`,
+          content: {
+            title:
+              streak > 0
+                ? `Last chance! Your ${streak}-day streak ends tonight.`
+                : "One session. That's all it takes. 📚",
+            body: "Don't let today go to waste — a quick revision session keeps the momentum going.",
+            data: { screen: "/(tabs)/home" },
+            sound: "default",
+            priority: Notifications.AndroidNotificationPriority.HIGH,
+            categoryIdentifier: "revision",
+          },
+          trigger: {
+            type: Notifications.SchedulableTriggerInputTypes.DATE,
+            date: ninePm,
+            channelId: "revision",
+          },
+        }).catch(() => {});
+      }
+    }
+
+    // ── Sunday 18:00 Weekly progress (motivationalInsightsEnabled) ────────
+    if (motivationalOn && base.getDay() === 0) {
+      const sundaySixPm = new Date(base);
+      sundaySixPm.setHours(18, 0, 0, 0);
+      if (sundaySixPm.getTime() > now + 60_000) {
+        await Notifications.scheduleNotificationAsync({
+          identifier: `${REVISION_NOTIF_PREFIX}weekly-${dateStr}`,
+          content: {
+            title: "📊 Your weekly study report",
+            body:
+              weeklyTopicCount > 0
+                ? `This week you studied ${weeklyTopicCount} topic${weeklyTopicCount === 1 ? "" : "s"}. Keep the momentum going!`
+                : "This week has been quiet. Start a session today to build your streak!",
+            data: { screen: "/(tabs)/home" },
+            sound: "default",
+            priority: Notifications.AndroidNotificationPriority.DEFAULT,
+            categoryIdentifier: "revision",
+          },
+          trigger: {
+            type: Notifications.SchedulableTriggerInputTypes.DATE,
+            date: sundaySixPm,
+            channelId: "revision",
+          },
+        }).catch(() => {});
       }
     }
   }

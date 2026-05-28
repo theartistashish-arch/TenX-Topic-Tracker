@@ -29,7 +29,7 @@ import {
   ThemePref,
   useSettings,
 } from "@/contexts/SettingsContext";
-import { requestRevisionPermission } from "@/lib/notifications";
+
 import { useTopics } from "@/contexts/TopicsContext";
 import { useColors } from "@/hooks/useColors";
 import { useSubscription } from "@/lib/revenuecat";
@@ -185,73 +185,6 @@ export default function SettingsScreen() {
           />
         </Section>
 
-        <Section title="Feedback">
-          <Toggle
-            icon="smartphone"
-            label="Haptics"
-            description="Vibrate on taps and timer events."
-            value={settings.hapticsEnabled}
-            onChange={(v) => void updateSettings({ hapticsEnabled: v })}
-          />
-          <Toggle
-            icon="volume-2"
-            label="Sounds"
-            description="Play a chime when a focus or break ends."
-            value={settings.soundEnabled}
-            onChange={(v) => { tap(); void updateSettings({ soundEnabled: v }); }}
-            last
-          />
-        </Section>
-
-
-        <Section title="Notifications">
-          <Toggle
-            icon="bell"
-            label="Enable notifications"
-            description="Revision reminders and streak alerts."
-            value={settings.remindersEnabled}
-            onChange={async (v) => {
-              tap();
-              if (v) {
-                const granted = await requestRevisionPermission();
-              }
-              void updateSettings({ remindersEnabled: v });
-            }}
-          />
-          <Toggle
-            icon="sunrise"
-            label="Morning reminder"
-            description="Daily nudge at 8 AM when topics are due."
-            value={settings.morningReminderEnabled}
-            onChange={(v) => { tap(); void updateSettings({ morningReminderEnabled: v }); }}
-            disabled={!settings.remindersEnabled}
-          />
-          <Toggle
-            icon="sunset"
-            label="Evening reminder"
-            description="Evening check-in at 7 PM for pending topics."
-            value={settings.eveningReminderEnabled}
-            onChange={(v) => { tap(); void updateSettings({ eveningReminderEnabled: v }); }}
-            disabled={!settings.remindersEnabled}
-          />
-          <Toggle
-            icon="zap"
-            label="Streak alerts"
-            description="Warn you before a study streak is broken."
-            value={settings.streakAlertsEnabled}
-            onChange={(v) => { tap(); void updateSettings({ streakAlertsEnabled: v }); }}
-            disabled={!settings.remindersEnabled}
-          />
-          <Toggle
-            icon="trending-up"
-            label="Motivational insights"
-            description="Low-priority tips and retention observations."
-            value={settings.motivationalInsightsEnabled}
-            onChange={(v) => { tap(); void updateSettings({ motivationalInsightsEnabled: v }); }}
-            disabled={!settings.remindersEnabled}
-            last
-          />
-        </Section>
 
         <Section title="Account">
           <ActionRow

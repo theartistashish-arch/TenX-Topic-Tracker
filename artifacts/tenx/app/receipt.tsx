@@ -23,6 +23,11 @@ import {
 } from "@/contexts/TopicsContext";
 import { useColors } from "@/hooks/useColors";
 import { useAds } from "@/lib/ads";
+import {
+  cancelTodayStreakAlert,
+  checkAndScheduleMilestoneNotification,
+  scheduleTopicRevisionNotification,
+} from "@/lib/notifications";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -66,7 +71,7 @@ export default function ReceiptScreen() {
     minutes: string;
     pauses?: string;
   }>();
-  const { getTopic, recordSession } = useTopics();
+  const { topics, getTopic, recordSession } = useTopics();
   const { examModeActive, examSubjects, examDate } = useExamMode();
 
   const topicId = params.topicId;
@@ -165,6 +170,27 @@ export default function ReceiptScreen() {
       pauseCount,
       examContext: { active: examModeActive, subjects: examSubjects, date: examDate },
     });
+
+    if (Platform.OS !== "web") {
+      // Schedule per-topic revision reminder for its next due date
+      const preview = previews[d];
+      const daysUntilReview = examCapActive
+        ? Math.min(preview.effectiveDays, 1)
+        : preview.effectiveDays;
+      const nextReviewAt = Date.now() + daysUntilReview * DAY_MS;
+      void scheduleTopicRevisionNotification(
+        topic.id, topic.topicName, topic.subject, nextReviewAt,
+      );
+
+      // Cancel today's streak guards since the user has now studied
+      void cancelTodayStreakAlert();
+
+      // Check if this session hits a milestone (10 / 25 / 50 / 100)
+      const totalSessions =
+        topics.reduce((sum, t) => sum + (t.sessions?.length ?? 0), 0) + 1;
+      void checkAndScheduleMilestoneNotification(totalSessions);
+    }
+
     await showInterstitialIfDue();
     setSaving(false);
     router.replace("/home");

@@ -1,4 +1,4 @@
-import React, { forwardRef } from "react";
+import React, { forwardRef, useState } from "react";
 import {
   StyleSheet,
   Text,
@@ -16,8 +16,16 @@ interface FormFieldProps extends TextInputProps {
 }
 
 export const FormField = forwardRef<TextInput, FormFieldProps>(
-  ({ label, error, right, style, ...rest }, ref) => {
+  ({ label, error, right, style, onFocus, onBlur, ...rest }, ref) => {
     const colors = useColors();
+    const [focused, setFocused] = useState(false);
+
+    const borderColor = error
+      ? colors.destructive
+      : focused
+      ? "#3b82f6"
+      : colors.border;
+
     return (
       <View style={styles.wrap}>
         <Text style={[styles.label, { color: colors.mutedForeground }]}>
@@ -31,12 +39,14 @@ export const FormField = forwardRef<TextInput, FormFieldProps>(
               styles.input,
               {
                 backgroundColor: colors.card,
-                borderColor: error ? colors.destructive : colors.border,
+                borderColor,
                 color: colors.foreground,
                 paddingRight: right ? 48 : 16,
               },
               style,
             ]}
+            onFocus={(e) => { setFocused(true); onFocus?.(e); }}
+            onBlur={(e) => { setFocused(false); onBlur?.(e); }}
             {...rest}
           />
           {right ? (

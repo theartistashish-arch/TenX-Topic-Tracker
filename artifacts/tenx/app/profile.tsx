@@ -36,7 +36,7 @@ export default function ProfileScreen() {
 
   const [editing, setEditing] = useState(false);
   const [name, setName] = useState(currentUser?.name ?? "");
-  const [city, setCity] = useState(currentUser?.city ?? "");
+
   const [school, setSchool] = useState(currentUser?.schoolName ?? "");
   const [examGoal, setExamGoal] = useState<ExamGoal>(
     currentUser?.examGoal ?? "Other",
@@ -118,7 +118,6 @@ export default function ProfileScreen() {
 
   const startEdit = () => {
     setName(currentUser.name);
-    setCity(currentUser.city);
     setSchool(currentUser.schoolName);
     const knownGoal = EXAM_GOALS.includes(currentUser.examGoal);
     setExamGoal(knownGoal ? currentUser.examGoal : "Other");
@@ -132,7 +131,6 @@ export default function ProfileScreen() {
     setError(null);
     const res = await updateProfile({
       ...(name.trim() ? { name: name.trim() } : {}),
-      city,
       schoolName: school,
       examGoal: examGoal === "Other" ? customExamGoal.trim() || "Other" : examGoal,
     });
@@ -273,11 +271,6 @@ export default function ProfileScreen() {
             />
             <InfoRow icon="mail" label="Email" value={currentUser.email} />
             <InfoRow
-              icon="map-pin"
-              label="City"
-              value={currentUser.city || "—"}
-            />
-            <InfoRow
               icon="book"
               label="School / College"
               value={currentUser.schoolName || "—"}
@@ -302,13 +295,6 @@ export default function ProfileScreen() {
                 value={name}
                 onChangeText={setName}
                 placeholder="Your name"
-              />
-            </FieldBlock>
-            <FieldBlock label="City">
-              <Input
-                value={city}
-                onChangeText={setCity}
-                placeholder="Your city"
               />
             </FieldBlock>
             <FieldBlock label="School / College">

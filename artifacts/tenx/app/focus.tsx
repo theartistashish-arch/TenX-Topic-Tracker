@@ -429,13 +429,25 @@ export default function FocusScreen() {
     return () => clearInterval(id);
   }, [phase, paused]);
 
-  // Keep sound/haptics preferences in refs so alarm effects don't re-fire
-  // when the user toggles those settings mid-session (which would orphan the
-  // existing alarm by overwriting alarmStopRef without stopping the old one).
-  const soundOnRef = useRef(soundOn);
-  const hapticsOnRef = useRef(hapticsOn);
-  useEffect(() => { soundOnRef.current = soundOn; }, [soundOn]);
-  useEffect(() => { hapticsOnRef.current = hapticsOn; }, [hapticsOn]);
+  // ── Notification lifecycle on pause / resume ──────────────────────────────
+  // Cancel the OS-scheduled notification when paused (it would fire at the
+  // wrong wall-clock time). Reschedule for the correct remaining time on resume.
+  // Reads phase/elapsed via refs to avoid re-running on every 250ms tick.
+  useEffect(() => {
+    if (paused) {
+      cancelTimerNotification();
+      return;
+    }
+    if (phaseRef.current === "focus" && focusGoalElapsedRef.current > 0) {
+      const focusRemaining = Math.max(0, focusGoalElapsedRef.current - focusElapsedRef.current);
+      if (focusRemaining > 0) {
+        scheduleTimerNotification(focusRemaining, "Focus session complete! Time to take a short break.");
+      }
+    } else if (phaseRef.current === "break" && remainingRef.current > 0) {
+      scheduleTimerNotification(remainingRef.current, "Break is over! Time to get back to studying.");
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [paused, cancelTimerNotification, scheduleTimerNotification]);
 
   // ── Focus goal reached → break popup ──────────────────────────────────────
   useEffect(() => {
@@ -461,15 +473,13 @@ export default function FocusScreen() {
             alarmStopRef.current();
             alarmStopRef.current = null;
           }
-          alarmStopRef.current = startAlarm({ sound: soundOnRef.current, haptics: hapticsOnRef.current });
+          alarmStopRef.current = startAlarm();
         }
         backgroundedAtRef.current = null;
         setPaused(true);
         setShowBreakPopup(true);
       }
     }
-  // soundOn / hapticsOn intentionally excluded — handled via refs above.
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [phase, focusElapsed, focusGoalElapsed, settings.autoStartBreak, startBreak, showBreakPopup, cancelTimerNotification]);
 
   // ── Break timer ends → after-break modal ──────────────────────────────────
@@ -491,14 +501,12 @@ export default function FocusScreen() {
           alarmStopRef.current();
           alarmStopRef.current = null;
         }
-        alarmStopRef.current = startAlarm({ sound: soundOnRef.current, haptics: hapticsOnRef.current });
+        alarmStopRef.current = startAlarm();
       }
       backgroundedAtRef.current = null;
       setPaused(true);
       setShowAfterBreakModal(true);
     }
-  // soundOn / hapticsOn intentionally excluded — handled via refs above.
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [phase, remaining, showAfterBreakModal, cancelTimerNotification]);
 
   // ── Rotate tips during break ───────────────────────────────────────────────
