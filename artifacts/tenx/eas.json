@@ -52,14 +52,5 @@
         "EXPO_PUBLIC_ADMOB_ANDROID_REWARDED_ID": "ca-app-pub-8963042908346749/4296355305"
       }
     }
-  },
-  "update": {
-    "production": {
-      "channel": "production",
-      "environment": "production"
-    },
-    "preview": {
-      "channel": "preview"
-    }
   }
 }

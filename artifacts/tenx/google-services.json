@@ -14,6 +14,14 @@
       },
       "oauth_client": [
         {
+          "client_id": "372157016133-03sni19q5c4sor6ncj0c65gk4cp8fn7d.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.topter.app",
+            "certificate_hash": "859d0a779c716f4391328951f629aacb6fb44ab5"
+          }
+        },
+        {
           "client_id": "372157016133-qcli4nbbqufm6gvr3f6g7f75bs21a0p6.apps.googleusercontent.com",
           "client_type": 1,
           "android_info": {

@@ -1,7 +1,22 @@
 {
   "permissions": {
     "allow": [
-      "PowerShell(git *)"
+      "PowerShell(git *)",
+      "PowerShell(npm install *)",
+      "Bash(git commit -m ' *)",
+      "Bash(git push *)",
+      "Bash(npx eas-cli *)",
+      "Bash(npm view *)",
+      "Bash(pnpm install *)",
+      "Bash(where npx *)",
+      "Bash(npx expo *)",
+      "PowerShell(Get-Command *)",
+      "Read(//c/Users/91817/AppData/Local/Temp/**)",
+      "Bash(pnpm exec *)",
+      "Bash(eas credentials *)",
+      "Bash(eas build *)",
+      "Bash(git add *)",
+      "Bash(eas update *)"
     ]
   }
 }

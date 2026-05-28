@@ -4,6 +4,7 @@ import { Link, useRouter } from "expo-router";
 import React, { useState } from "react";
 import {
   ActivityIndicator,
+  Alert,
   Platform,
   Pressable,
   StyleSheet,
@@ -68,6 +69,11 @@ export default function LoginScreen() {
     } catch (err: unknown) {
       const code = (err as { code?: string }).code ?? "";
       if (code !== statusCodes.SIGN_IN_CANCELLED) {
+        // DEBUG: show full error details on device
+        Alert.alert(
+          "Google Sign-In Error [DEBUG]",
+          `code: ${code}\nmessage: ${(err as { message?: string }).message ?? ""}\n\n${JSON.stringify(err, null, 2)}`,
+        );
         setError("Google sign-in failed. Please try again.");
       }
     } finally {
