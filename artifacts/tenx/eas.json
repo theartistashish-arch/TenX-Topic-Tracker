@@ -1,6 +1,6 @@
 {
   "cli": {
-    "version": ">=18.0.0",
+    "version": ">=19.0.0",
     "appVersionSource": "remote"
   },
   "build": {
@@ -51,6 +51,15 @@
         "EXPO_PUBLIC_ADMOB_ANDROID_INTERSTITIAL_ID": "ca-app-pub-8963042908346749/8235600315",
         "EXPO_PUBLIC_ADMOB_ANDROID_REWARDED_ID": "ca-app-pub-8963042908346749/4296355305"
       }
+    }
+  },
+  "update": {
+    "production": {
+      "channel": "production",
+      "environment": "production"
+    },
+    "preview": {
+      "channel": "preview"
     }
   }
 }
