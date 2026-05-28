@@ -18,18 +18,7 @@ import { BrandMark, BrandTagline, BrandWordmark } from "@/components/Brand";
 import { FormField } from "@/components/FormField";
 import { PrimaryButton } from "@/components/PrimaryButton";
 import { useAuth } from "@/contexts/AuthContext";
-
-let GoogleSignin: any = null;
-let statusCodes: any = {};
-if (Platform.OS !== "web") {
-  const pkg = require("@react-native-google-signin/google-signin");
-  GoogleSignin = pkg.GoogleSignin;
-  statusCodes = pkg.statusCodes;
-  GoogleSignin.configure({
-    webClientId:
-      "372157016133-41uc72ralfb4ti5h8m2ivs67qoklptde.apps.googleusercontent.com",
-  });
-}
+import { GoogleSignin, statusCodes } from "@/lib/googleSignIn";
 
 export default function SignupScreen() {
   const insets = useSafeAreaInsets();
