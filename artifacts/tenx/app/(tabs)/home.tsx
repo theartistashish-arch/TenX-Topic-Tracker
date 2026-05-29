@@ -828,12 +828,12 @@ export default function HomeScreen() {
                   color={colors.mutedForeground}
                 />
                 <Text style={[styles.emptyTitle, { color: colors.foreground }]}>
-                  REVISION SCHEDULE.
+                  Revision schedule
                 </Text>
                 <Text
                   style={[styles.emptyText, { color: colors.mutedForeground }]}
                 >
-                  Tap New topic to start.
+                  Your topics will appear here
                 </Text>
               </View>
             );
