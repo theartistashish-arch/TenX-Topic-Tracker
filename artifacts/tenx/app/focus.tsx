@@ -7,6 +7,7 @@ import * as Notifications from "expo-notifications";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
+  Animated,
   AppState,
   AppStateStatus,
   BackHandler,
@@ -77,6 +78,7 @@ const STUDY_QUOTES = [
 ];
 
 const DAY_MS = 24 * 60 * 60 * 1000;
+const BREAK_TIP_DURATION_MS = 45000;
 
 const DIFF_TINT: Record<Difficulty, string> = {
   easy: "#22c55e",
@@ -586,7 +588,7 @@ export default function FocusScreen() {
     if (phase !== "break") return;
     const id = setInterval(() => {
       setTipIndex((i) => (i + 1) % ALL_BREAK_TIPS.length);
-    }, 20000);
+    }, BREAK_TIP_DURATION_MS);
     return () => clearInterval(id);
   }, [phase]);
 
@@ -856,7 +858,7 @@ export default function FocusScreen() {
     <LinearGradient
       colors={
         phase === "break"
-          ? ["#062b34", "#0a4a55", "#0b1020"]
+          ? ["#0d1117", "#0d1117", "#0d1117"]
           : ["#0b1020", "#1e1b4b", "#0b1020"]
       }
       start={{ x: 0, y: 0 }}
@@ -869,6 +871,7 @@ export default function FocusScreen() {
           { paddingTop: topInset + 16, paddingBottom: bottomInset + 24 },
         ]}
       >
+        {phase !== "break" && (
         <View style={styles.headerRow}>
           <View style={styles.headerLeft}>
             <View style={styles.headerTopRow}>
@@ -916,6 +919,7 @@ export default function FocusScreen() {
             </Text>
           </View>
         </View>
+        )}
 
         <TimerBody
           elapsed={focusElapsed}
@@ -944,6 +948,8 @@ export default function FocusScreen() {
           pulse={pulse}
           elapsedFocusMin={Math.floor(focusElapsed / 60)}
           quote={quote}
+          tipIndex={tipIndex}
+          totalTips={ALL_BREAK_TIPS.length}
         />
       </ScrollView>
 
@@ -1098,6 +1104,8 @@ function TimerBody({
   pulse,
   elapsedFocusMin,
   quote,
+  tipIndex,
+  totalTips,
 }: {
   elapsed: number;
   remaining: number;
@@ -1118,7 +1126,23 @@ function TimerBody({
   pulse: any;
   elapsedFocusMin: number;
   quote: string;
+  tipIndex: number;
+  totalTips: number;
 }) {
+  if (phase === "break") {
+    return (
+      <BreakBody
+        remaining={remaining}
+        tip={tip}
+        tipIndex={tipIndex}
+        totalTips={totalTips}
+        onSkipBreak={onSkipBreak}
+        onExtendBreak={onExtendBreak}
+        onFinish={onFinish}
+      />
+    );
+  }
+
   const focusAccent = isOvertime ? "#f59e0b" : "#a5b4fc";
   const accent = phase === "break" ? "#22d3ee" : focusAccent;
   const displayTime = phase === "focus" ? elapsed : remaining;
@@ -1719,4 +1743,402 @@ const styles = StyleSheet.create({
     lineHeight: 18,
     flex: 1,
   },
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Break screen — animation components
+// ─────────────────────────────────────────────────────────────────────────────
+
+function BreatheAnim() {
+  const s1 = useRef(new Animated.Value(1)).current;
+  const s2 = useRef(new Animated.Value(1)).current;
+  const s3 = useRef(new Animated.Value(1)).current;
+  useEffect(() => {
+    const a = Animated.loop(
+      Animated.sequence([
+        Animated.parallel([
+          Animated.timing(s1, { toValue: 1.25, duration: 2200, useNativeDriver: true }),
+          Animated.timing(s2, { toValue: 1.18, duration: 2700, useNativeDriver: true }),
+          Animated.timing(s3, { toValue: 1.1, duration: 3200, useNativeDriver: true }),
+        ]),
+        Animated.parallel([
+          Animated.timing(s1, { toValue: 1, duration: 2200, useNativeDriver: true }),
+          Animated.timing(s2, { toValue: 1, duration: 2700, useNativeDriver: true }),
+          Animated.timing(s3, { toValue: 1, duration: 3200, useNativeDriver: true }),
+        ]),
+      ])
+    );
+    a.start();
+    return () => a.stop();
+  }, [s1, s2, s3]);
+  return (
+    <View style={animSt.container}>
+      <Animated.View style={[animSt.breatheRing3, { transform: [{ scale: s3 }] }]} />
+      <Animated.View style={[animSt.breatheRing2, { transform: [{ scale: s2 }] }]} />
+      <Animated.View style={[animSt.breatheRing1, { transform: [{ scale: s1 }] }]} />
+    </View>
+  );
+}
+
+function WaterAnim() {
+  const fill = useRef(new Animated.Value(0)).current;
+  useEffect(() => {
+    const a = Animated.loop(
+      Animated.sequence([
+        Animated.timing(fill, { toValue: 1, duration: 2800, useNativeDriver: false }),
+        Animated.delay(700),
+        Animated.timing(fill, { toValue: 0, duration: 400, useNativeDriver: false }),
+        Animated.delay(400),
+      ])
+    );
+    a.start();
+    return () => a.stop();
+  }, [fill]);
+  return (
+    <View style={animSt.container}>
+      <View style={animSt.glass}>
+        <Animated.View style={[animSt.water, {
+          height: fill.interpolate({ inputRange: [0, 1], outputRange: [0, 88] }),
+        }]} />
+      </View>
+      <Text style={animSt.emoji}>💧</Text>
+    </View>
+  );
+}
+
+function EyeRestAnim() {
+  const blink = useRef(new Animated.Value(1)).current;
+  useEffect(() => {
+    const a = Animated.loop(
+      Animated.sequence([
+        Animated.delay(2200),
+        Animated.timing(blink, { toValue: 0.08, duration: 180, useNativeDriver: true }),
+        Animated.timing(blink, { toValue: 1, duration: 180, useNativeDriver: true }),
+        Animated.delay(2200),
+        Animated.timing(blink, { toValue: 0.08, duration: 180, useNativeDriver: true }),
+        Animated.timing(blink, { toValue: 1, duration: 180, useNativeDriver: true }),
+      ])
+    );
+    a.start();
+    return () => a.stop();
+  }, [blink]);
+  return (
+    <View style={animSt.container}>
+      <View style={{ flexDirection: "row", gap: 18, marginBottom: 14 }}>
+        {[0, 1].map((i) => (
+          <View key={i} style={animSt.eyeOuter}>
+            <Animated.View style={[animSt.eyePupil, { transform: [{ scaleY: blink }] }]} />
+          </View>
+        ))}
+      </View>
+      <Text style={animSt.emoji}>🙌</Text>
+    </View>
+  );
+}
+
+function StretchAnim() {
+  const armsY = useRef(new Animated.Value(0)).current;
+  useEffect(() => {
+    const a = Animated.loop(
+      Animated.sequence([
+        Animated.timing(armsY, { toValue: -28, duration: 1600, useNativeDriver: true }),
+        Animated.delay(700),
+        Animated.timing(armsY, { toValue: 0, duration: 1600, useNativeDriver: true }),
+        Animated.delay(700),
+      ])
+    );
+    a.start();
+    return () => a.stop();
+  }, [armsY]);
+  return (
+    <View style={animSt.container}>
+      <View style={{ alignItems: "center" }}>
+        <View style={animSt.figHead} />
+        <View style={{ flexDirection: "row", alignItems: "flex-start", marginTop: -2 }}>
+          <Animated.View style={[animSt.armH, { transform: [{ translateY: armsY }, { rotate: "-30deg" }] }]} />
+          <View style={animSt.figBody} />
+          <Animated.View style={[animSt.armH, { transform: [{ translateY: armsY }, { rotate: "30deg" }] }]} />
+        </View>
+        <View style={{ flexDirection: "row", gap: 6, marginTop: 2 }}>
+          <View style={[animSt.leg, { transform: [{ rotate: "10deg" }] }]} />
+          <View style={[animSt.leg, { transform: [{ rotate: "-10deg" }] }]} />
+        </View>
+      </View>
+    </View>
+  );
+}
+
+function WalkAnim() {
+  const swing = useRef(new Animated.Value(0)).current;
+  useEffect(() => {
+    const a = Animated.loop(
+      Animated.sequence([
+        Animated.timing(swing, { toValue: 1, duration: 480, useNativeDriver: true }),
+        Animated.timing(swing, { toValue: 0, duration: 480, useNativeDriver: true }),
+      ])
+    );
+    a.start();
+    return () => a.stop();
+  }, [swing]);
+  const legL = swing.interpolate({ inputRange: [0, 1], outputRange: ["28deg", "-28deg"] });
+  const legR = swing.interpolate({ inputRange: [0, 1], outputRange: ["-28deg", "28deg"] });
+  const armL = swing.interpolate({ inputRange: [0, 1], outputRange: ["-18deg", "18deg"] });
+  const armR = swing.interpolate({ inputRange: [0, 1], outputRange: ["18deg", "-18deg"] });
+  return (
+    <View style={animSt.container}>
+      <View style={{ alignItems: "center" }}>
+        <View style={animSt.figHead} />
+        <View style={{ flexDirection: "row", alignItems: "flex-start", marginTop: -2 }}>
+          <Animated.View style={[animSt.armH, { transform: [{ rotate: armL }] }]} />
+          <View style={animSt.figBody} />
+          <Animated.View style={[animSt.armH, { transform: [{ rotate: armR }] }]} />
+        </View>
+        <View style={{ flexDirection: "row", gap: 6, marginTop: 2 }}>
+          <Animated.View style={[animSt.leg, { transform: [{ rotate: legL }] }]} />
+          <Animated.View style={[animSt.leg, { transform: [{ rotate: legR }] }]} />
+        </View>
+      </View>
+    </View>
+  );
+}
+
+function MindfulAnim() {
+  const opacity = useRef(new Animated.Value(0.3)).current;
+  const scale = useRef(new Animated.Value(0.88)).current;
+  useEffect(() => {
+    const a = Animated.loop(
+      Animated.sequence([
+        Animated.parallel([
+          Animated.timing(opacity, { toValue: 1, duration: 2000, useNativeDriver: true }),
+          Animated.timing(scale, { toValue: 1.1, duration: 2000, useNativeDriver: true }),
+        ]),
+        Animated.parallel([
+          Animated.timing(opacity, { toValue: 0.3, duration: 2000, useNativeDriver: true }),
+          Animated.timing(scale, { toValue: 0.88, duration: 2000, useNativeDriver: true }),
+        ]),
+      ])
+    );
+    a.start();
+    return () => a.stop();
+  }, [opacity, scale]);
+  return (
+    <View style={animSt.container}>
+      <Animated.View style={[animSt.mindfulOuter, { opacity, transform: [{ scale }] }]} />
+      <Animated.View style={[animSt.mindfulInner, { opacity }]} />
+      <Text style={[animSt.emoji, { marginTop: 8 }]}>✨</Text>
+    </View>
+  );
+}
+
+function getAnimationForTip(tip: string): "breathe" | "water" | "eye" | "stretch" | "walk" | "mindful" {
+  const t = tip.toLowerCase();
+  if (/breath|inhale|exhale|relax|deep/.test(t)) return "breathe";
+  if (/water|drink|hydrate|fluid|sip/.test(t)) return "water";
+  if (/eye|eyes|blink|screen|vision|palm/.test(t)) return "eye";
+  if (/walk|stand|move|step|stroll/.test(t)) return "walk";
+  if (/stretch|neck|shoulder|back|spine|posture|wrist/.test(t)) return "stretch";
+  if (/smile|mind|mental|stress|grateful|positive/.test(t)) return "mindful";
+  return "breathe";
+}
+
+function BreakTipProgress({ tipIndex, totalTips }: { tipIndex: number; totalTips: number }) {
+  const [elapsed, setElapsed] = useState(0);
+  const SECS = BREAK_TIP_DURATION_MS / 1000;
+
+  useEffect(() => { setElapsed(0); }, [tipIndex]);
+
+  useEffect(() => {
+    const id = setInterval(() => setElapsed((e) => Math.min(e + 0.25, SECS)), 250);
+    return () => clearInterval(id);
+  }, [SECS]);
+
+  const pct = Math.min((elapsed / SECS) * 100, 100);
+  const remaining = Math.max(0, Math.round(SECS - elapsed));
+
+  return (
+    <View style={bkSt.progressWrap}>
+      <View style={bkSt.progressTrack}>
+        <View style={[bkSt.progressBar, { width: `${pct}%` as any }]} />
+      </View>
+      <View style={bkSt.progressRow}>
+        <Text style={bkSt.progressText}>Tip {tipIndex + 1} of {totalTips}</Text>
+        <Text style={bkSt.progressText}>{remaining}s remaining</Text>
+      </View>
+    </View>
+  );
+}
+
+function BreakBody({
+  remaining,
+  tip,
+  tipIndex,
+  totalTips,
+  onSkipBreak,
+  onExtendBreak,
+  onFinish,
+}: {
+  remaining: number;
+  tip: string;
+  tipIndex: number;
+  totalTips: number;
+  onSkipBreak: () => void;
+  onExtendBreak: () => void;
+  onFinish: () => void;
+}) {
+  const animType = getAnimationForTip(tip);
+  const AnimComp =
+    animType === "water"   ? WaterAnim   :
+    animType === "eye"     ? EyeRestAnim :
+    animType === "stretch" ? StretchAnim :
+    animType === "walk"    ? WalkAnim    :
+    animType === "mindful" ? MindfulAnim :
+    BreatheAnim;
+
+  return (
+    <View style={bkSt.root}>
+      {/* Header */}
+      <View style={bkSt.header}>
+        <View style={bkSt.badge}>
+          <Feather name="coffee" size={11} color="#EF9F27" />
+          <Text style={bkSt.badgeText}>HEALTHY BREAK</Text>
+        </View>
+        <View style={bkSt.timePill}>
+          <Text style={bkSt.timePillText}>{fmt(remaining)} left</Text>
+        </View>
+      </View>
+
+      {/* Animation */}
+      <View style={bkSt.animArea}>
+        <AnimComp />
+      </View>
+
+      {/* Dot indicators */}
+      <View style={bkSt.dots}>
+        {Array.from({ length: totalTips }).map((_, i) => (
+          <View key={i} style={[bkSt.dot, i === tipIndex && bkSt.dotActive]} />
+        ))}
+      </View>
+
+      {/* Tip card */}
+      <View style={bkSt.tipCard}>
+        <Text style={bkSt.tipLabel}>TIP</Text>
+        <Text style={bkSt.tipText}>{tip}</Text>
+      </View>
+
+      {/* Progress bar + counter */}
+      <BreakTipProgress tipIndex={tipIndex} totalTips={totalTips} />
+
+      {/* Buttons */}
+      <View style={bkSt.btnRow}>
+        <Pressable
+          onPress={onSkipBreak}
+          style={({ pressed }) => [bkSt.skipBtn, { opacity: pressed ? 0.7 : 1 }]}
+        >
+          <Feather name="skip-forward" size={16} color="rgba(255,255,255,0.65)" />
+          <Text style={bkSt.skipBtnText}>Skip Break</Text>
+        </Pressable>
+        <Pressable
+          onPress={onExtendBreak}
+          style={({ pressed }) => [bkSt.extendBtn, { opacity: pressed ? 0.7 : 1 }]}
+        >
+          <Feather name="plus" size={16} color="#EF9F27" />
+          <Text style={bkSt.extendBtnText}>Extend Break</Text>
+        </Pressable>
+      </View>
+
+      <PrimaryButton title="Complete Topic" onPress={onFinish} />
+    </View>
+  );
+}
+
+const animSt = StyleSheet.create({
+  container: { width: 190, height: 190, alignItems: "center", justifyContent: "center" },
+  // Breathe
+  breatheRing1: {
+    position: "absolute", width: 80, height: 80, borderRadius: 40,
+    backgroundColor: "rgba(239,159,39,0.18)", borderWidth: 1.5, borderColor: "#EF9F27",
+  },
+  breatheRing2: {
+    position: "absolute", width: 124, height: 124, borderRadius: 62,
+    borderWidth: 1.5, borderColor: "rgba(239,159,39,0.35)",
+  },
+  breatheRing3: {
+    position: "absolute", width: 168, height: 168, borderRadius: 84,
+    borderWidth: 1, borderColor: "rgba(239,159,39,0.15)",
+  },
+  // Water
+  glass: {
+    width: 52, height: 90, borderWidth: 2, borderColor: "rgba(255,255,255,0.32)",
+    borderRadius: 4, overflow: "hidden", justifyContent: "flex-end",
+  },
+  water: { width: "100%", backgroundColor: "#38bdf8", opacity: 0.75 },
+  // Eye
+  eyeOuter: {
+    width: 46, height: 28, borderRadius: 14, borderWidth: 2,
+    borderColor: "rgba(255,255,255,0.5)", alignItems: "center", justifyContent: "center",
+    overflow: "hidden",
+  },
+  eyePupil: { width: 14, height: 14, borderRadius: 7, backgroundColor: "#EF9F27" },
+  // Figure shared
+  figHead: { width: 20, height: 20, borderRadius: 10, borderWidth: 2, borderColor: "#EF9F27", marginBottom: 2 },
+  figBody: { width: 2, height: 42, backgroundColor: "#EF9F27", marginHorizontal: 4 },
+  armH: { width: 26, height: 2, backgroundColor: "#EF9F27", marginTop: 9 },
+  leg: { width: 2, height: 32, backgroundColor: "#EF9F27" },
+  // Mindful
+  mindfulOuter: {
+    position: "absolute", width: 144, height: 144, borderRadius: 72,
+    borderWidth: 1.5, borderColor: "#EF9F27",
+  },
+  mindfulInner: {
+    position: "absolute", width: 82, height: 82, borderRadius: 41,
+    backgroundColor: "rgba(239,159,39,0.14)", borderWidth: 1, borderColor: "rgba(239,159,39,0.45)",
+  },
+  emoji: { fontSize: 28, marginTop: 10 },
+});
+
+const bkSt = StyleSheet.create({
+  root: { gap: 16, paddingVertical: 4 },
+  header: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
+  badge: {
+    flexDirection: "row", alignItems: "center", gap: 5,
+    backgroundColor: "rgba(239,159,39,0.1)", borderWidth: 1,
+    borderColor: "rgba(239,159,39,0.3)", borderRadius: 20,
+    paddingHorizontal: 10, paddingVertical: 4,
+  },
+  badgeText: { color: "#EF9F27", fontFamily: "Inter_600SemiBold", fontSize: 11, letterSpacing: 0.8 },
+  timePill: {
+    backgroundColor: "rgba(255,255,255,0.05)", borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.1)", borderRadius: 20,
+    paddingHorizontal: 10, paddingVertical: 4,
+  },
+  timePillText: { color: "rgba(255,255,255,0.42)", fontFamily: "Inter_500Medium", fontSize: 12 },
+  animArea: { alignItems: "center", justifyContent: "center", paddingVertical: 6 },
+  dots: { flexDirection: "row", gap: 5, flexWrap: "wrap", justifyContent: "center" },
+  dot: { width: 6, height: 6, borderRadius: 3, backgroundColor: "rgba(255,255,255,0.16)" },
+  dotActive: { width: 16, height: 6, borderRadius: 3, backgroundColor: "#EF9F27" },
+  tipCard: {
+    backgroundColor: "rgba(255,255,255,0.04)", borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.09)", borderRadius: 16,
+    padding: 16, gap: 6,
+  },
+  tipLabel: { color: "#EF9F27", fontFamily: "Inter_600SemiBold", fontSize: 10, letterSpacing: 1.2 },
+  tipText: { color: "#fff", fontFamily: "Inter_500Medium", fontSize: 14, lineHeight: 20 },
+  progressWrap: { gap: 7 },
+  progressTrack: { height: 3, backgroundColor: "rgba(255,255,255,0.09)", borderRadius: 2, overflow: "hidden" },
+  progressBar: { height: 3, backgroundColor: "#EF9F27", borderRadius: 2 },
+  progressRow: { flexDirection: "row", justifyContent: "space-between" },
+  progressText: { color: "rgba(255,255,255,0.32)", fontFamily: "Inter_400Regular", fontSize: 11 },
+  btnRow: { flexDirection: "row", gap: 10 },
+  skipBtn: {
+    flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center",
+    gap: 7, paddingVertical: 14, borderRadius: 14,
+    borderWidth: 1, borderColor: "rgba(255,255,255,0.13)",
+  },
+  skipBtnText: { color: "rgba(255,255,255,0.65)", fontFamily: "Inter_600SemiBold", fontSize: 14 },
+  extendBtn: {
+    flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center",
+    gap: 7, paddingVertical: 14, borderRadius: 14,
+    backgroundColor: "rgba(239,159,39,0.1)", borderWidth: 1, borderColor: "rgba(239,159,39,0.3)",
+  },
+  extendBtnText: { color: "#EF9F27", fontFamily: "Inter_600SemiBold", fontSize: 14 },
 });
