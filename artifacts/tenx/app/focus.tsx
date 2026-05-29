@@ -56,6 +56,19 @@ const ALL_BREAK_TIPS = [
   "Consistency compounds. You're building it.",
 ];
 
+const STUDY_QUOTES = [
+  "Push through — you're almost there",
+  "Focus is your superpower",
+  "One topic at a time",
+  "Your future self will thank you",
+  "Deep work = real results",
+  "Stay locked in",
+  "Every minute counts",
+  "You chose to show up today",
+  "Consistency beats talent",
+  "Keep going — this is how legends study",
+];
+
 type Phase = "focus" | "break";
 
 function fmt(seconds: number): string {
@@ -94,6 +107,8 @@ export default function FocusScreen() {
   const isWeb = Platform.OS === "web";
   const topInset = isWeb ? Math.max(insets.top, 67) : insets.top;
   const bottomInset = isWeb ? Math.max(insets.bottom, 34) : insets.bottom;
+
+  const [quote] = useState(() => STUDY_QUOTES[Math.floor(Math.random() * STUDY_QUOTES.length)]!);
 
   // ── Timer state ────────────────────────────────────────────────────────────
   const [phase, setPhase] = useState<Phase>("focus");
@@ -836,6 +851,7 @@ export default function FocusScreen() {
           tip={ALL_BREAK_TIPS[tipIndex % ALL_BREAK_TIPS.length]!}
           pulse={pulse}
           elapsedFocusMin={Math.floor(focusElapsed / 60)}
+          quote={quote}
         />
       </ScrollView>
 
@@ -915,6 +931,7 @@ function TimerBody({
   tip,
   pulse,
   elapsedFocusMin,
+  quote,
 }: {
   elapsed: number;
   remaining: number;
@@ -934,6 +951,7 @@ function TimerBody({
   tip: string;
   pulse: any;
   elapsedFocusMin: number;
+  quote: string;
 }) {
   const focusAccent = isOvertime ? "#f59e0b" : "#a5b4fc";
   const accent = phase === "break" ? "#22d3ee" : focusAccent;
@@ -1090,6 +1108,7 @@ function TimerBody({
         </View>
       )}
 
+      <Text style={styles.quoteText}>{quote}</Text>
       <PrimaryButton title="Finish Topic" onPress={onFinish} />
     </View>
   );
@@ -1329,6 +1348,14 @@ const styles = StyleSheet.create({
     fontSize: 11,
     textAlign: "center",
     letterSpacing: 0.2,
+  },
+  quoteText: {
+    color: "rgba(255,255,255,0.35)",
+    fontFamily: "Inter_400Regular",
+    fontSize: 13,
+    textAlign: "center",
+    letterSpacing: 0.1,
+    paddingHorizontal: 16,
   },
 
   // ── After-break modal ──────────────────────────────────────────────────────
