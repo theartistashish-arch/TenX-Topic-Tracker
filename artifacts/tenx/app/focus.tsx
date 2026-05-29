@@ -26,12 +26,19 @@ import { BreakPopup } from "@/components/BreakPopup";
 import { useAds } from "@/lib/ads";
 import { BreakTipCarousel } from "@/components/BreakTipCarousel";
 import { DndReminderModal, hasDndReminderBeenSeen } from "@/components/DndReminderModal";
+import { useExamMode } from "@/contexts/ExamModeContext";
 import { useSettings } from "@/contexts/SettingsContext";
-import { useTopics } from "@/contexts/TopicsContext";
+import { Difficulty, SRSchedule, computeSR, useTopics } from "@/contexts/TopicsContext";
 import { useColors } from "@/hooks/useColors";
 import { startAlarm } from "@/lib/feedback";
 import { FOCUS_STATE_KEY } from "@/lib/focusStorage";
-import { TIMER_NOTIF_PREFIX, ensureTimerChannel } from "@/lib/notifications";
+import {
+  TIMER_NOTIF_PREFIX,
+  cancelTodayStreakAlert,
+  checkAndScheduleMilestoneNotification,
+  ensureTimerChannel,
+  scheduleTopicRevisionNotification,
+} from "@/lib/notifications";
 
 const ALL_BREAK_TIPS = [
   "Drink water. Small sip, big reset.",
@@ -69,6 +76,26 @@ const STUDY_QUOTES = [
   "Keep going — this is how legends study",
 ];
 
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+const DIFF_TINT: Record<Difficulty, string> = {
+  easy: "#22c55e",
+  medium: "#f59e0b",
+  hard: "#ef4444",
+};
+
+const DIFF_LABEL: Record<Difficulty, string> = {
+  easy: "Easy",
+  medium: "Moderate",
+  hard: "Hard",
+};
+
+const DIFF_GUIDE: Record<Difficulty, string> = {
+  easy: "Recalled well · few facts · familiar concepts",
+  medium: "Some effort · moderate recall · a few gaps",
+  hard: "Struggled · dense facts · tough concepts",
+};
+
 type Phase = "focus" | "break";
 
 function fmt(seconds: number): string {
@@ -83,9 +110,10 @@ export default function FocusScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const { topicId } = useLocalSearchParams<{ topicId: string }>();
-  const { getTopic } = useTopics();
+  const { topics, getTopic, recordSession } = useTopics();
   const { settings, isLoading: settingsLoading } = useSettings();
-  const { showRewardedAd } = useAds();
+  const { showRewardedAd, showInterstitialIfDue } = useAds();
+  const { examModeActive, examSubjects, examDate } = useExamMode();
   const hapticsOn = settings.hapticsEnabled;
   const soundOn = settings.soundEnabled;
   const breakMinutes = settings.breakMinutes;
@@ -109,6 +137,35 @@ export default function FocusScreen() {
   const bottomInset = isWeb ? Math.max(insets.bottom, 34) : insets.bottom;
 
   const [quote] = useState(() => STUDY_QUOTES[Math.floor(Math.random() * STUDY_QUOTES.length)]!);
+
+  // ── Rating sheet state ─────────────────────────────────────────────────────
+  const [showRatingSheet, setShowRatingSheet] = useState(false);
+  const [ratingSelected, setRatingSelected] = useState<Difficulty | null>(null);
+  const [ratingSaving, setRatingSaving] = useState(false);
+  const [pausedBeforeRating, setPausedBeforeRating] = useState(false);
+  const [sessionMinutesSnap, setSessionMinutesSnap] = useState(0);
+
+  const srStateSnap = useMemo(() => ({
+    interval: topic?.srInterval ?? 1,
+    easeFactor: topic?.srEaseFactor ?? 2.5,
+    repetitionCount: topic?.srRepetitionCount ?? 0,
+  }), [topic?.srInterval, topic?.srEaseFactor, topic?.srRepetitionCount]);
+
+  const srPreviews = useMemo<Record<Difficulty, SRSchedule>>(() => {
+    const opts: Difficulty[] = ["easy", "medium", "hard"];
+    return opts.reduce((acc, d) => {
+      acc[d] = computeSR(d, srStateSnap, topic?.nextReviewAt ?? null, Date.now());
+      return acc;
+    }, {} as Record<Difficulty, SRSchedule>);
+  }, [srStateSnap, topic?.nextReviewAt]);
+
+  const examCapActive =
+    examModeActive &&
+    !!topic?.isImportant &&
+    !!topic?.subject &&
+    examSubjects.includes(topic.subject) &&
+    examDate !== null &&
+    Date.now() < examDate;
 
   // ── Timer state ────────────────────────────────────────────────────────────
   const [phase, setPhase] = useState<Phase>("focus");
@@ -591,17 +648,52 @@ export default function FocusScreen() {
 
   const handleFinishSession = () => {
     if (!topic) return;
+    setSessionMinutesSnap(Math.max(0, Math.round(focusElapsed / 60)));
+    setPausedBeforeRating(paused);
+    setPaused(true);
     cancelTimerNotification();
-    clearPersistedState();
-    const minutes = Math.max(0, Math.round(focusElapsed / 60));
-    router.replace({
-      pathname: "/receipt",
-      params: {
-        topicId: topic.id,
-        minutes: String(minutes),
-        pauses: String(pauseCount),
-      },
+    setShowRatingSheet(true);
+  };
+
+  const handleRatingSheetDismiss = () => {
+    if (ratingSaving) return;
+    setShowRatingSheet(false);
+    setRatingSelected(null);
+    if (!pausedBeforeRating) {
+      setPaused(false);
+    }
+  };
+
+  const handleRateTap = async (d: Difficulty) => {
+    if (ratingSaving || ratingSelected !== null || !topic) return;
+    setRatingSelected(d);
+    setRatingSaving(true);
+    if (hapticsOn && Platform.OS !== "web") {
+      Haptics.selectionAsync().catch(() => {});
+    }
+    await new Promise<void>((r) => setTimeout(r, 350));
+    await recordSession({
+      topicId: topic.id,
+      minutes: sessionMinutesSnap,
+      difficulty: d,
+      pauseCount,
+      examContext: { active: examModeActive, subjects: examSubjects, date: examDate },
     });
+    if (Platform.OS !== "web") {
+      const preview = srPreviews[d];
+      const daysUntilReview = examCapActive
+        ? Math.min(preview.effectiveDays, 1)
+        : preview.effectiveDays;
+      const nextReviewAt = Date.now() + daysUntilReview * DAY_MS;
+      void scheduleTopicRevisionNotification(topic.id, topic.topicName, topic.subject, nextReviewAt);
+      void cancelTodayStreakAlert();
+      const totalSessions = topics.reduce((sum, t) => sum + (t.sessions?.length ?? 0), 0) + 1;
+      void checkAndScheduleMilestoneNotification(totalSessions);
+    }
+    await showInterstitialIfDue();
+    AsyncStorage.removeItem(FOCUS_STATE_KEY).catch(() => {});
+    stopAlarm();
+    router.replace("/home");
   };
 
   const handleExit = () => {
@@ -899,6 +991,80 @@ export default function FocusScreen() {
         </View>
       </Modal>
 
+      {/* ── Rating bottom sheet ── */}
+      <Modal
+        visible={showRatingSheet}
+        transparent
+        animationType="slide"
+        statusBarTranslucent
+        onRequestClose={handleRatingSheetDismiss}
+      >
+        <View style={styles.sheetOverlay}>
+          <Pressable style={StyleSheet.absoluteFill} onPress={handleRatingSheetDismiss} />
+          <View style={styles.sheet}>
+            <View style={styles.sheetHandle} />
+            <View style={styles.sheetMetaRow}>
+              <View style={styles.sheetTopicChip}>
+                <Text style={styles.sheetTopicChipText} numberOfLines={1}>
+                  {topic?.topicName}
+                </Text>
+              </View>
+              <View style={styles.sheetDurationChip}>
+                <Feather name="clock" size={12} color="rgba(255,255,255,0.55)" />
+                <Text style={styles.sheetDurationText}>
+                  {sessionMinutesSnap < 1 ? "< 1 min" : `${sessionMinutesSnap} min`}
+                </Text>
+              </View>
+            </View>
+            <Text style={styles.sheetTitle}>How did it feel?</Text>
+            <Text style={styles.sheetSubtitle}>Your answer sets the next revision date</Text>
+            <View style={styles.sheetCardsStack}>
+              {(["easy", "medium", "hard"] as Difficulty[]).map((d) => {
+                const tint = DIFF_TINT[d];
+                const preview = srPreviews[d];
+                const isActive = ratingSelected === d;
+                const intervalLabel = examCapActive
+                  ? "Revise tomorrow"
+                  : `Revise in ${preview.newInterval} ${preview.newInterval === 1 ? "day" : "days"}`;
+                return (
+                  <Pressable
+                    key={d}
+                    onPress={() => { void handleRateTap(d); }}
+                    disabled={ratingSaving || examCapActive}
+                    style={({ pressed }) => [
+                      styles.sheetRatingBtn,
+                      {
+                        backgroundColor: isActive ? tint : `${tint}18`,
+                        borderColor: isActive ? tint : `${tint}40`,
+                        opacity: examCapActive ? 0.45 : pressed ? 0.82 : 1,
+                      },
+                    ]}
+                  >
+                    <View style={styles.sheetRatingBtnLeft}>
+                      <Text style={styles.sheetRatingLabel}>{DIFF_LABEL[d]}</Text>
+                      <Text style={[styles.sheetRatingGuide, { color: isActive ? "rgba(255,255,255,0.8)" : "rgba(255,255,255,0.55)" }]}>
+                        {DIFF_GUIDE[d]}
+                      </Text>
+                    </View>
+                    <Text style={[styles.sheetRatingDays, { color: isActive ? "#fff" : tint }]} numberOfLines={1}>
+                      {intervalLabel}
+                    </Text>
+                  </Pressable>
+                );
+              })}
+            </View>
+            {examCapActive ? (
+              <View style={styles.sheetLockedBox}>
+                <Feather name="zap" size={14} color="#f97316" />
+                <Text style={styles.sheetLockedHint}>
+                  Priority topic in Exam Mode — review auto-scheduled for tomorrow.
+                </Text>
+              </View>
+            ) : null}
+          </View>
+        </View>
+      </Modal>
+
       <DndReminderModal
         visible={showDndReminder}
         onDismiss={() => setShowDndReminder(false)}
@@ -1109,7 +1275,7 @@ function TimerBody({
       )}
 
       <Text style={styles.quoteText}>{quote}</Text>
-      <PrimaryButton title="Finish Topic" onPress={onFinish} />
+      <PrimaryButton title="Complete Topic" onPress={onFinish} />
     </View>
   );
 }
@@ -1425,5 +1591,132 @@ const styles = StyleSheet.create({
     color: "#0b1020",
     fontFamily: "Inter_700Bold",
     fontSize: 14,
+  },
+
+  // ── Rating bottom sheet ────────────────────────────────────────────────────
+  sheetOverlay: {
+    flex: 1,
+    justifyContent: "flex-end",
+    backgroundColor: "rgba(3,7,18,0.75)",
+  },
+  sheet: {
+    backgroundColor: "#0f172a",
+    borderTopLeftRadius: 28,
+    borderTopRightRadius: 28,
+    paddingHorizontal: 20,
+    paddingTop: 12,
+    paddingBottom: 36,
+    gap: 14,
+    borderWidth: 1,
+    borderBottomWidth: 0,
+    borderColor: "rgba(255,255,255,0.12)",
+  },
+  sheetHandle: {
+    width: 36,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: "rgba(255,255,255,0.25)",
+    alignSelf: "center",
+    marginBottom: 4,
+  },
+  sheetMetaRow: {
+    flexDirection: "row",
+    gap: 8,
+    flexWrap: "wrap",
+  },
+  sheetTopicChip: {
+    backgroundColor: "rgba(34,211,238,0.10)",
+    borderWidth: 1,
+    borderColor: "rgba(34,211,238,0.22)",
+    borderRadius: 20,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    flexShrink: 1,
+  },
+  sheetTopicChipText: {
+    color: "#22d3ee",
+    fontFamily: "Inter_600SemiBold",
+    fontSize: 12,
+    letterSpacing: 0.5,
+  },
+  sheetDurationChip: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+    backgroundColor: "rgba(255,255,255,0.06)",
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.12)",
+    borderRadius: 20,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+  },
+  sheetDurationText: {
+    color: "rgba(255,255,255,0.55)",
+    fontFamily: "Inter_500Medium",
+    fontSize: 12,
+  },
+  sheetTitle: {
+    color: "#fff",
+    fontFamily: "Inter_700Bold",
+    fontSize: 22,
+    letterSpacing: -0.4,
+  },
+  sheetSubtitle: {
+    color: "rgba(255,255,255,0.6)",
+    fontFamily: "Inter_500Medium",
+    fontSize: 13,
+    marginTop: -6,
+  },
+  sheetCardsStack: {
+    gap: 8,
+  },
+  sheetRatingBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingVertical: 18,
+    paddingHorizontal: 20,
+    borderRadius: 18,
+    borderWidth: 2,
+    gap: 14,
+  },
+  sheetRatingBtnLeft: {
+    flex: 1,
+    gap: 3,
+  },
+  sheetRatingLabel: {
+    color: "#fff",
+    fontFamily: "Inter_700Bold",
+    fontSize: 17,
+    letterSpacing: -0.2,
+  },
+  sheetRatingGuide: {
+    fontFamily: "Inter_500Medium",
+    fontSize: 12,
+    lineHeight: 17,
+  },
+  sheetRatingDays: {
+    fontFamily: "Inter_700Bold",
+    fontSize: 14,
+    letterSpacing: 0.2,
+    flexShrink: 1,
+    textAlign: "right",
+  },
+  sheetLockedBox: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 8,
+    backgroundColor: "rgba(249,115,22,0.08)",
+    borderColor: "rgba(249,115,22,0.3)",
+    borderWidth: 1,
+    borderRadius: 12,
+    padding: 12,
+  },
+  sheetLockedHint: {
+    color: "#f97316",
+    fontFamily: "Inter_600SemiBold",
+    fontSize: 13,
+    lineHeight: 18,
+    flex: 1,
   },
 });
