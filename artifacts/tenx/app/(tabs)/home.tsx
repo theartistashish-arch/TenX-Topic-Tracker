@@ -634,10 +634,10 @@ export default function HomeScreen() {
             ) : null}
 
             <View style={styles.topRow}>
-              <SmallChip label={`${streak} day streak`} icon="zap" onPress={() => setChipExplainer("streak")} />
-              <SmallChip label={`${todayDoneList.length} studied`} icon="check-circle" onPress={() => setChipExplainer("studied")} />
-              <SmallChip label={`${todayList.length} due`} icon="clock" onPress={() => setChipExplainer("due")} />
-              <SmallChip label={`${goalPct}% goal`} icon="target" onPress={() => setChipExplainer("goal")} />
+              <View style={styles.chipCell}><SmallChip label={`${streak} day streak`} icon="zap" onPress={() => setChipExplainer("streak")} /></View>
+              <View style={styles.chipCell}><SmallChip label={`${todayDoneList.length} studied`} icon="check-circle" onPress={() => setChipExplainer("studied")} /></View>
+              <View style={styles.chipCell}><SmallChip label={`${todayList.length} due`} icon="clock" onPress={() => setChipExplainer("due")} /></View>
+              <View style={styles.chipCell}><SmallChip label={`${goalPct}% goal`} icon="target" onPress={() => setChipExplainer("goal")} /></View>
             </View>
             {/* ── Daily progress bar ── */}
             {(() => {
@@ -1808,9 +1808,11 @@ const styles = StyleSheet.create({
   },
   greetTagline: { fontFamily: "Inter_500Medium", fontSize: 14, opacity: 0.78 },
   topRow: { flexDirection: "row", gap: 8, flexWrap: "wrap" },
+  chipCell: { flexBasis: "45%", flexGrow: 1 },
   chip: {
     flexDirection: "row",
     alignItems: "center",
+    justifyContent: "center",
     gap: 6,
     paddingHorizontal: 10,
     paddingVertical: 7,
