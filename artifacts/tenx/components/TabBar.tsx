@@ -1,4 +1,4 @@
-import { Feather } from "@expo/vector-icons";
+import { Feather, Ionicons } from "@expo/vector-icons";
 import { BottomTabBarProps } from "@react-navigation/bottom-tabs";
 import * as Haptics from "expo-haptics";
 import { LinearGradient } from "expo-linear-gradient";
@@ -22,6 +22,7 @@ const LABELS: Record<string, string> = {
   home: "Home",
   library: "Library",
   pulse: "Pulse",
+  insights: "Insights",
 };
 
 export function TabBar({ state, navigation }: BottomTabBarProps) {
@@ -72,11 +73,19 @@ export function TabBar({ state, navigation }: BottomTabBarProps) {
                   isFocused && styles.iconWrapActive,
                 ]}
               >
-                <Feather
-                  name={icon}
-                  size={20}
-                  color={isFocused ? "#0b1020" : "rgba(255,255,255,0.7)"}
-                />
+                {route.name === "insights" ? (
+                  <Ionicons
+                    name="sparkles"
+                    size={20}
+                    color={isFocused ? "#0b1020" : "rgba(255,255,255,0.7)"}
+                  />
+                ) : (
+                  <Feather
+                    name={icon}
+                    size={20}
+                    color={isFocused ? "#0b1020" : "rgba(255,255,255,0.7)"}
+                  />
+                )}
               </View>
               <Text
                 style={[
