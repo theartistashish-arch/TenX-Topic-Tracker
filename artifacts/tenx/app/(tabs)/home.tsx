@@ -1445,6 +1445,7 @@ function MenuSheet({
           danger
           small
         />
+        <Text style={drawerStyles.tagline}>Study smarter, not harder</Text>
         <Text style={drawerStyles.version}>Topter v1.0</Text>
       </Animated.View>
     </Modal>
@@ -2139,6 +2140,13 @@ const drawerStyles = StyleSheet.create({
     fontFamily: "Inter_700Bold",
     fontSize: 14,
     flex: 1,
+  },
+  tagline: {
+    color: "rgba(255,255,255,0.35)",
+    fontFamily: "Inter_400Regular",
+    fontSize: 12,
+    textAlign: "center",
+    paddingBottom: 2,
   },
   version: {
     color: "rgba(255,255,255,0.22)",
