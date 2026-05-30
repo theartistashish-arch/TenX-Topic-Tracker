@@ -37,7 +37,7 @@ export function playChime(opts: { sound?: boolean; haptics?: boolean } = {}) {
  *
  * Web: repeats the Web Audio chime every 1.5 s (sound pref respected).
  *
- * Always call stop() when the user dismisses the alert.
+ * Always call the returned stop() when the user dismisses the alert.
  */
 export function startAlarm(): () => void {
   // ── Web ─────────────────────────────────────────────────────────────────
@@ -55,9 +55,46 @@ export function startAlarm(): () => void {
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning).catch(() => {});
   }, 1300);
 
+  // Audio loop — loaded asynchronously so vibration starts immediately.
+  // The `stopped` flag ensures clean teardown if stop() is called before
+  // the sound finishes loading.
+  let soundRef: Audio.Sound | null = null;
+  let stopped = false;
+
+  (async () => {
+    try {
+      await Audio.setAudioModeAsync({
+        allowsRecordingIOS: false,
+        playsInSilentModeIOS: false, // respects iOS ringer switch
+        shouldDuckAndroid: false,
+        staysActiveInBackground: false,
+      });
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      const { sound } = await Audio.Sound.createAsync(
+        require("../assets/alarm_bell.wav"),
+        { shouldPlay: true, isLooping: true, volume: 1.0 },
+      );
+      await sound.setIsLoopingAsync(true);
+      soundRef = sound;
+      if (stopped) {
+        await sound.stopAsync().catch(() => {});
+        await sound.unloadAsync().catch(() => {});
+        soundRef = null;
+      }
+    } catch {
+      // Audio load failed — vibration continues as fallback
+    }
+  })();
+
   return () => {
+    stopped = true;
     clearInterval(hapticsInterval);
     Vibration.cancel();
+    if (soundRef) {
+      soundRef.stopAsync().catch(() => {});
+      soundRef.unloadAsync().catch(() => {});
+      soundRef = null;
+    }
   };
 }
 

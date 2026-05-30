@@ -36,8 +36,10 @@ import { FOCUS_STATE_KEY } from "@/lib/focusStorage";
 import {
   TIMER_NOTIF_PREFIX,
   cancelTodayStreakAlert,
+  canScheduleExactAlarmsAsync,
   checkAndScheduleMilestoneNotification,
   ensureTimerChannel,
+  openExactAlarmSettings,
   scheduleTopicRevisionNotification,
 } from "@/lib/notifications";
 
@@ -182,6 +184,7 @@ export default function FocusScreen() {
   const [showBreakPopup, setShowBreakPopup] = useState(false);
   const [showAfterBreakModal, setShowAfterBreakModal] = useState(false);
   const [showDndReminder, setShowDndReminder] = useState(false);
+  const [showExactAlarmModal, setShowExactAlarmModal] = useState(false);
   const [tipIndex, setTipIndex] = useState(() =>
     Math.floor(Math.random() * ALL_BREAK_TIPS.length),
   );
@@ -198,9 +201,12 @@ export default function FocusScreen() {
   // Holds the stop() function for the currently-running alarm loop (break/after-break alert)
   const alarmStopRef = useRef<(() => void) | null>(null);
   // Timestamp when the app was last sent to background while the timer was running.
-  // Used on return-to-foreground to decide whether the OS notification already
-  // fired the alarm while the screen was off (suppress duplicate in-app alarm).
   const backgroundedAtRef = useRef<number | null>(null);
+  // Set to true in the AppState → active handler (before clearing backgroundedAtRef)
+  // when the projected elapsed time shows the goal was passed while the screen was off.
+  // The goal effects read this to suppress the duplicate in-app alarm (the OS
+  // lock-screen notification already alerted the user).
+  const goalPassedWhileBackgroundedRef = useRef(false);
 
   // Keep mutable refs current so AppState handler closure always reads latest values
   const phaseRef = useRef(phase);
@@ -364,6 +370,28 @@ export default function FocusScreen() {
       // • Call case: timer was paused; user taps Resume themselves.
       if (nextState === "active") {
         if (prev === "background") {
+          // Before clearing backgroundedAtRef, project whether the timer goal
+          // was reached while the screen was off. The goal effects run after
+          // React re-renders (which happen after this synchronous callback), so
+          // by the time they execute backgroundedAtRef would already be null —
+          // that race condition is why we set goalPassedWhileBackgroundedRef here
+          // instead of relying on backgroundedAtRef inside the effects.
+          const bgAt = backgroundedAtRef.current;
+          if (bgAt !== null && !pausedRef.current) {
+            const wallElapsed = (Date.now() - bgAt) / 1000;
+            if (
+              phaseRef.current === "focus" &&
+              focusGoalElapsedRef.current > 0 &&
+              focusElapsedRef.current + wallElapsed >= focusGoalElapsedRef.current
+            ) {
+              goalPassedWhileBackgroundedRef.current = true;
+            } else if (
+              phaseRef.current === "break" &&
+              remainingRef.current - wallElapsed <= 0
+            ) {
+              goalPassedWhileBackgroundedRef.current = true;
+            }
+          }
           // Re-persist current state with savedAt=null — prevents crash-recovery
           // from adding the already-accounted-for background time again.
           AsyncStorage.setItem(
@@ -375,8 +403,6 @@ export default function FocusScreen() {
           ).catch(() => {});
         }
         // For prev === "inactive" (call ended): timer is already paused; no action needed.
-        // Clear backgroundedAtRef so that if the goal is reached in the foreground
-        // the in-app alarm fires normally.
         backgroundedAtRef.current = null;
       }
 
@@ -503,25 +529,16 @@ export default function FocusScreen() {
     return () => clearInterval(id);
   }, [phase, paused]);
 
-  // ── Notification lifecycle on pause / resume ──────────────────────────────
-  // Cancel the OS-scheduled notification when paused (it would fire at the
-  // wrong wall-clock time). Reschedule for the correct remaining time on resume.
-  // Reads phase/elapsed via refs to avoid re-running on every 250ms tick.
+  // ── Notification cancel on pause ──────────────────────────────────────────
+  // Cancel the OS-scheduled notification when paused so it doesn't fire at the
+  // wrong wall-clock time. Rescheduling on resume is handled by handleTogglePause
+  // and each explicit start/action function (startFocus, startBreak, etc.) to
+  // avoid double-scheduling two notifications for the same event.
   useEffect(() => {
     if (paused) {
       cancelTimerNotification();
-      return;
     }
-    if (phaseRef.current === "focus" && focusGoalElapsedRef.current > 0) {
-      const focusRemaining = Math.max(0, focusGoalElapsedRef.current - focusElapsedRef.current);
-      if (focusRemaining > 0) {
-        scheduleTimerNotification(focusRemaining, "Focus session complete! Time to take a short break.");
-      }
-    } else if (phaseRef.current === "break" && remainingRef.current > 0) {
-      scheduleTimerNotification(remainingRef.current, "Break is over! Time to get back to studying.");
-    }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [paused, cancelTimerNotification, scheduleTimerNotification]);
+  }, [paused, cancelTimerNotification]);
 
   // ── Focus goal reached → break popup ──────────────────────────────────────
   useEffect(() => {
@@ -529,19 +546,17 @@ export default function FocusScreen() {
     if (focusGoalElapsed > 0 && focusElapsed >= focusGoalElapsed) {
       cancelTimerNotification();
       if (settings.autoStartBreak) {
+        // Clear the flag even in the auto-start path so a subsequent break goal
+        // detection in the foreground fires the in-app alarm normally.
+        goalPassedWhileBackgroundedRef.current = false;
         startBreak();
       } else {
         // Guard: only start the alarm once — if popup is already showing, the
         // alarm is already running; don't start (and orphan) a second one.
         if (showBreakPopup) return;
-        // If we were backgrounded and the goal was reached while the screen
-        // was off, the OS DATE-trigger notification already rang.  Skip the
-        // loud in-app alarm — just show the popup silently.
-        const wasBackgrounded = backgroundedAtRef.current !== null;
-        const goalWasPassedWhileBackgrounded =
-          wasBackgrounded && focusGoalElapsedRef.current > 0 &&
-          focusElapsedRef.current >= focusGoalElapsedRef.current;
-        if (!goalWasPassedWhileBackgrounded) {
+        // If the OS lock-screen notification already alerted the user while the
+        // screen was off, skip the duplicate in-app alarm.
+        if (!goalPassedWhileBackgroundedRef.current) {
           // Stop any lingering alarm before starting a fresh one.
           if (alarmStopRef.current) {
             alarmStopRef.current();
@@ -549,7 +564,7 @@ export default function FocusScreen() {
           }
           alarmStopRef.current = startAlarm();
         }
-        backgroundedAtRef.current = null;
+        goalPassedWhileBackgroundedRef.current = false;
         setPaused(true);
         setShowBreakPopup(true);
       }
@@ -564,12 +579,9 @@ export default function FocusScreen() {
       // alarm is already running.
       if (showAfterBreakModal) return;
       cancelTimerNotification();
-      // If the break ended while the screen was off, the OS DATE-trigger
-      // notification already rang.  Skip the duplicate in-app alarm.
-      const wasBackgrounded = backgroundedAtRef.current !== null;
-      const breakEndedWhileBackgrounded =
-        wasBackgrounded && remainingRef.current <= 0;
-      if (!breakEndedWhileBackgrounded) {
+      // If the OS lock-screen notification already alerted the user while the
+      // screen was off, skip the duplicate in-app alarm.
+      if (!goalPassedWhileBackgroundedRef.current) {
         // Stop any lingering alarm before starting a fresh one.
         if (alarmStopRef.current) {
           alarmStopRef.current();
@@ -577,7 +589,7 @@ export default function FocusScreen() {
         }
         alarmStopRef.current = startAlarm();
       }
-      backgroundedAtRef.current = null;
+      goalPassedWhileBackgroundedRef.current = false;
       setPaused(true);
       setShowAfterBreakModal(true);
     }
@@ -625,6 +637,13 @@ export default function FocusScreen() {
     if (Platform.OS !== "web") {
       Notifications.requestPermissionsAsync().catch(() => {});
       ensureTimerChannel().catch(() => {});
+      // On Android 12+, SCHEDULE_EXACT_ALARM is a separate runtime permission
+      // the user must grant in system settings — it's not a standard prompt.
+      // If it's missing, the OS notification may arrive late or not at all when
+      // the screen is off. Show a one-time modal with a direct link to settings.
+      canScheduleExactAlarmsAsync().then((can) => {
+        if (!can) setShowExactAlarmModal(true);
+      }).catch(() => {});
     }
   }, []);
 
@@ -653,6 +672,7 @@ export default function FocusScreen() {
     setSessionMinutesSnap(Math.max(0, Math.round(focusElapsed / 60)));
     setPausedBeforeRating(paused);
     setPaused(true);
+    stopAlarm();
     cancelTimerNotification();
     setShowRatingSheet(true);
   };
@@ -724,6 +744,30 @@ export default function FocusScreen() {
   // Keep ref current so the BackHandler closure always calls latest handleExit
   useEffect(() => { handleExitRef.current = handleExit; });
 
+  // Pause/resume toggle with correct notification lifecycle:
+  //   pause  → cancel OS notification (lifecycle effect handles this)
+  //   resume → reschedule notification for the remaining time
+  // Keeping this explicit avoids double-scheduling that occurred when both
+  // the start functions AND the old paused-watcher effect each called
+  // scheduleTimerNotification in the same React commit.
+  const handleTogglePause = useCallback(() => {
+    tap();
+    if (!pausedRef.current) {
+      // Currently running → pause
+      if (phaseRef.current === "focus") setPauseCount((c) => c + 1);
+      setPaused(true);
+    } else {
+      // Currently paused → resume, reschedule notification for remaining time
+      setPaused(false);
+      if (phaseRef.current === "focus" && focusGoalElapsedRef.current > 0) {
+        const rem = Math.max(0, focusGoalElapsedRef.current - focusElapsedRef.current);
+        if (rem > 0) scheduleTimerNotification(rem, "Focus session complete! Time to take a short break.");
+      } else if (phaseRef.current === "break" && remainingRef.current > 0) {
+        scheduleTimerNotification(remainingRef.current, "Break is over! Time to get back to studying.");
+      }
+    }
+  }, [tap, scheduleTimerNotification]);
+
   // Break popup: Continue Study (no break taken — push goal forward)
   const handleContinueStudy = () => {
     stopAlarm();
@@ -776,11 +820,9 @@ export default function FocusScreen() {
   // During break: Extend (add another break block)
   const handleExtendCurrentBreak = () => {
     const extra = breakMinutes * 60;
-    setRemaining((prev) => {
-      const next = prev + extra;
-      scheduleTimerNotification(next, "Break is over! Time to get back to studying.");
-      return next;
-    });
+    const newRemaining = remainingRef.current + extra;
+    setRemaining(newRemaining);
+    scheduleTimerNotification(newRemaining, "Break is over! Time to get back to studying.");
   };
 
   // After-break modal: Continue Study
@@ -931,14 +973,7 @@ export default function FocusScreen() {
           paused={paused}
           focusMinutes={focusMinutes}
           breakMinutes={breakMinutes}
-          onTogglePause={() => {
-            tap();
-            setPaused((p) => {
-              const next = !p;
-              if (next && phase === "focus") setPauseCount((c) => c + 1);
-              return next;
-            });
-          }}
+          onTogglePause={handleTogglePause}
           onFinish={handleFinishSession}
           onSkipBreak={handleSkipBreak}
           onExtendBreak={handleExtendCurrentBreak}
@@ -1075,6 +1110,44 @@ export default function FocusScreen() {
         visible={showDndReminder}
         onDismiss={() => setShowDndReminder(false)}
       />
+
+      {/* Exact alarm permission — Android 12+. Without this the OS timer
+          notification may arrive late when the screen is locked. */}
+      {showExactAlarmModal && (
+        <Modal
+          visible
+          transparent
+          animationType="fade"
+          statusBarTranslucent
+          onRequestClose={() => setShowExactAlarmModal(false)}
+        >
+          <View style={styles.modalBackdrop}>
+            <View style={styles.modalCard}>
+              <View style={styles.modalIconWrap}>
+                <Feather name="bell" size={28} color="#a5b4fc" />
+              </View>
+              <Text style={styles.modalTitle}>Allow exact alarms</Text>
+              <Text style={styles.modalSub}>
+                To ring at the exact moment your timer ends — even with the screen off — this app needs permission to schedule exact alarms. Without it, the alarm may arrive late.
+              </Text>
+              <View style={styles.modalRow}>
+                <Pressable
+                  onPress={() => setShowExactAlarmModal(false)}
+                  style={({ pressed }) => [styles.modalSecondary, { opacity: pressed ? 0.85 : 1 }]}
+                >
+                  <Text style={styles.modalSecondaryText}>Skip</Text>
+                </Pressable>
+                <Pressable
+                  onPress={() => { setShowExactAlarmModal(false); openExactAlarmSettings(); }}
+                  style={({ pressed }) => [styles.modalPrimary, { opacity: pressed ? 0.9 : 1 }]}
+                >
+                  <Text style={styles.modalPrimaryText}>Open Settings</Text>
+                </Pressable>
+              </View>
+            </View>
+          </View>
+        </Modal>
+      )}
     </LinearGradient>
   );
 }
