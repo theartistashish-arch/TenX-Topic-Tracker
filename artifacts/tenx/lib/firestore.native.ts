@@ -23,17 +23,13 @@ export async function setUserData(
   key: "topics" | "settings",
   data: Record<string, unknown>,
 ): Promise<void> {
-  console.log(`[TenX] setUserData called: uid=${uid}, key=${key}`);
   try {
-    const dbRef = db();
-    console.log(`[TenX] setUserData writing to users/${uid}/data/${key}`);
-    await dbRef
+    await db()
       .collection("users")
       .doc(uid)
       .collection("data")
       .doc(key)
       .set({ ...data, updatedAt: Date.now() });
-    console.log(`[TenX] setUserData SUCCESS: users/${uid}/data/${key}`);
   } catch (err) {
     console.warn("[TenX] Firestore setUserData failed:", err);
   }

@@ -367,7 +367,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       } catch (err: unknown) {
         const code = (err as { code?: string }).code ?? "";
         const message = (err as { message?: string }).message ?? "";
-        console.warn("[TenX] signUp error:", code, message);
+        if (__DEV__) console.warn("[TenX] signUp error:", code, message);
         return { ok: false, error: fbErrorMessage(code, message) };
       }
     },

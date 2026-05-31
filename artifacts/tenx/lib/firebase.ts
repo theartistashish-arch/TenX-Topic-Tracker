@@ -14,17 +14,10 @@ import { getApps, initializeApp } from "firebase/app";
 import { Auth, getAuth } from "firebase/auth";
 import { Firestore, getFirestore, enableIndexedDbPersistence } from "firebase/firestore";
 
-const FIREBASE_CONFIG = {
-  apiKey: "AIzaSyBkN3WqYXSeTzFnajwRZs-QpZkAJxYkn2Q",
-  authDomain: "topter-325a2.firebaseapp.com",
-  projectId: "topter-325a2",
-  appId: "1:372157016133:web:5f0b00dd63ca463a325b2c",
-};
-
-const apiKey = process.env.EXPO_PUBLIC_FIREBASE_API_KEY || FIREBASE_CONFIG.apiKey;
-const authDomain = process.env.EXPO_PUBLIC_FIREBASE_AUTH_DOMAIN || FIREBASE_CONFIG.authDomain;
-const projectId = process.env.EXPO_PUBLIC_FIREBASE_PROJECT_ID || FIREBASE_CONFIG.projectId;
-const appId = process.env.EXPO_PUBLIC_FIREBASE_APP_ID || FIREBASE_CONFIG.appId;
+const apiKey = process.env.EXPO_PUBLIC_FIREBASE_API_KEY ?? "";
+const authDomain = process.env.EXPO_PUBLIC_FIREBASE_AUTH_DOMAIN ?? "";
+const projectId = process.env.EXPO_PUBLIC_FIREBASE_PROJECT_ID ?? "";
+const appId = process.env.EXPO_PUBLIC_FIREBASE_APP_ID ?? "";
 
 export const firebaseConfigured = !!(apiKey && authDomain && projectId);
 

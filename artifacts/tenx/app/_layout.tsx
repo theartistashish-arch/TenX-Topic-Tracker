@@ -103,6 +103,13 @@ function NotificationScheduler() {
 // ── Deep-link handler ──────────────────────────────────────────────────────
 // Listens for notification taps and navigates to the correct screen.
 
+const ALLOWED_NOTIF_SCREENS = new Set([
+  "/(tabs)/home",
+  "/(tabs)/pulse",
+  "/(tabs)/library",
+  "/(tabs)/insights",
+]);
+
 function NotificationDeepLink() {
   const router = useRouter();
 
@@ -112,7 +119,8 @@ function NotificationDeepLink() {
       const id = response.notification.request.identifier;
       if (!id.startsWith(REVISION_NOTIF_PREFIX)) return;
       const data = response.notification.request.content.data as Record<string, unknown>;
-      const screen = typeof data?.screen === "string" ? data.screen : "/(tabs)/home";
+      const raw = typeof data?.screen === "string" ? data.screen : "";
+      const screen = ALLOWED_NOTIF_SCREENS.has(raw) ? raw : "/(tabs)/home";
       // Small delay to ensure the navigator is ready after cold start.
       setTimeout(() => {
         try {
@@ -309,7 +317,7 @@ export default function RootLayout() {
         void (async () => {
           try {
             const update = await Updates.checkForUpdateAsync();
-            if (update.isAvailable) {
+            if (update.isAvailable && !focusSessionActive) {
               await Updates.fetchUpdateAsync();
               await Updates.reloadAsync();
             }

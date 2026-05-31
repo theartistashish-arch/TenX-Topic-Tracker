@@ -27,6 +27,13 @@ service cloud.firestore {
     // or not — can access it.
     match /users/{uid} {
       allow read, write: if request.auth != null && request.auth.uid == uid;
+
+      // users/{uid}/data/{key}
+      // Subcollections (topics, settings) must be explicitly covered —
+      // rules_version='2' does not cascade parent rules to subcollections.
+      match /data/{document} {
+        allow read, write: if request.auth != null && request.auth.uid == uid;
+      }
     }
 
     // Deny everything else by default.
