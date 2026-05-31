@@ -1,6 +1,6 @@
 import { Feather } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
-import React, { useMemo } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
   Platform,
@@ -18,6 +18,9 @@ import { Difficulty, Topic, isDueToday, useTopics } from "@/contexts/TopicsConte
 import { useSettings } from "@/contexts/SettingsContext";
 import { useColors } from "@/hooks/useColors";
 import { formatHoursMinutes } from "@/lib/insights";
+import { activateAdPass, checkAdPassActive } from "@/lib/adPass";
+import { useAds } from "@/lib/ads";
+import { useSubscription } from "@/lib/revenuecat";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -343,6 +346,27 @@ export default function PulseScreen() {
   const router = useRouter();
   const { topics, isLoading } = useTopics();
   const { settings } = useSettings();
+  const { isPro } = useSubscription();
+  const { showRewardedAd } = useAds();
+  const [hasAdPass, setHasAdPass] = useState(false);
+  const [isWatchingAd, setIsWatchingAd] = useState(false);
+
+  useEffect(() => {
+    checkAdPassActive().then(setHasAdPass).catch(() => {});
+  }, []);
+
+  const handleWatchAd = useCallback(async () => {
+    setIsWatchingAd(true);
+    try {
+      const earned = await showRewardedAd();
+      if (earned) {
+        await activateAdPass();
+        setHasAdPass(true);
+      }
+    } finally {
+      setIsWatchingAd(false);
+    }
+  }, [showRewardedAd]);
   const { width: windowWidth } = useWindowDimensions();
   const heatCellSize = Math.floor(
     (windowWidth - 40 - (HEAT_PER_ROW - 1) * HEAT_GAP) / HEAT_PER_ROW,
@@ -526,7 +550,7 @@ export default function PulseScreen() {
 
         <View style={styles.thickDivider} />
 
-        <View style={styles.section}>
+        <View style={[styles.section, { overflow: "hidden" }]}>
           <View style={styles.sectionHeader}>
             <View
               style={[styles.sectionIconBg, { backgroundColor: "#f9731622" }]}
@@ -537,43 +561,62 @@ export default function PulseScreen() {
           </View>
           <Text style={styles.sectionSub}>30-day study activity</Text>
 
-          <View style={styles.heatmapGrid}>
-            {heatmapData.map((cell, i) => {
-              const n = cell.sessions;
-              const bg =
-                n === 0
-                  ? colors.muted
-                  : n <= 2
-                    ? "#22c55e55"
-                    : n <= 5
-                      ? "#22c55ea0"
-                      : "#22c55e";
-              const isToday = i === heatmapData.length - 1;
-              return (
+          {hasAdPass ? (
+            <View style={heatAdPassBannerStyles.banner}>
+              <Feather name="check-circle" size={14} color="#085041" />
+              <Text style={heatAdPassBannerStyles.text}>
+                Free access active · Resets at midnight
+              </Text>
+            </View>
+          ) : null}
+
+          <View style={{ position: "relative" }}>
+            <View style={styles.heatmapGrid}>
+              {heatmapData.map((cell, i) => {
+                const n = cell.sessions;
+                const bg =
+                  n === 0
+                    ? colors.muted
+                    : n <= 2
+                      ? "#22c55e55"
+                      : n <= 5
+                        ? "#22c55ea0"
+                        : "#22c55e";
+                const isToday = i === heatmapData.length - 1;
+                return (
+                  <View
+                    key={i}
+                    style={[
+                      styles.heatCell,
+                      { backgroundColor: bg, width: heatCellSize, height: heatCellSize },
+                      isToday && styles.heatCellToday,
+                    ]}
+                  />
+                );
+              })}
+            </View>
+
+            {/* Legend */}
+            <View style={styles.heatLegend}>
+              <Text style={styles.heatLegendText}>Less</Text>
+              {(
+                [colors.muted, "#22c55e55", "#22c55ea0", "#22c55e"] as string[]
+              ).map((bg, i) => (
                 <View
                   key={i}
-                  style={[
-                    styles.heatCell,
-                    { backgroundColor: bg, width: heatCellSize, height: heatCellSize },
-                    isToday && styles.heatCellToday,
-                  ]}
+                  style={[styles.heatLegendCell, { backgroundColor: bg }]}
                 />
-              );
-            })}
-          </View>
+              ))}
+              <Text style={styles.heatLegendText}>More</Text>
+            </View>
 
-          {/* Legend */}
-          <View style={styles.heatLegend}>
-            <Text style={styles.heatLegendText}>Less</Text>
-            {(
-              [colors.muted, "#22c55e55", "#22c55ea0", "#22c55e"] as string[]
-            ).map((bg, i) => (
-              <View
-                key={i}
-                style={[styles.heatLegendCell, { backgroundColor: bg }]}
+            {!isPro && !hasAdPass ? (
+              <HeatmapOverlay
+                onWatchAd={handleWatchAd}
+                onUpgrade={() => router.push("/paywall")}
+                isWatching={isWatchingAd}
               />
-            ))}
-            <Text style={styles.heatLegendText}>More</Text>
+            ) : null}
           </View>
         </View>
 
@@ -1063,3 +1106,127 @@ function makeStyles(c: ReturnType<typeof useColors>) {
     },
   });
 }
+
+function HeatmapOverlay({
+  onWatchAd,
+  onUpgrade,
+  isWatching,
+}: {
+  onWatchAd: () => void;
+  onUpgrade: () => void;
+  isWatching: boolean;
+}) {
+  return (
+    <View
+      style={[StyleSheet.absoluteFillObject, heatOverlayStyles.overlay]}
+      pointerEvents="box-none"
+    >
+      <View style={heatOverlayStyles.content}>
+        <View style={heatOverlayStyles.iconWrap}>
+          <Feather name="unlock" size={22} color="#fff" />
+        </View>
+        <Text style={heatOverlayStyles.title}>Unlock all insights free today</Text>
+        <Text style={heatOverlayStyles.sub}>Watch a short ad · Resets at midnight</Text>
+        <Pressable
+          onPress={onWatchAd}
+          disabled={isWatching}
+          style={[heatOverlayStyles.primaryBtn, isWatching && { opacity: 0.6 }]}
+        >
+          <Feather name="play" size={13} color="#fff" />
+          <Text style={heatOverlayStyles.primaryBtnText}>
+            {isWatching ? "Loading ad…" : "Watch ad — free for today"}
+          </Text>
+        </Pressable>
+        <Pressable onPress={onUpgrade} style={heatOverlayStyles.secondaryBtn}>
+          <Feather name="star" size={13} color="#fff" />
+          <Text style={heatOverlayStyles.secondaryBtnText}>Go Pro — remove ads forever</Text>
+        </Pressable>
+      </View>
+    </View>
+  );
+}
+
+const heatAdPassBannerStyles = StyleSheet.create({
+  banner: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    backgroundColor: "#E1F5EE",
+    marginBottom: 10,
+    paddingHorizontal: 14,
+    paddingVertical: 9,
+    borderRadius: 10,
+  },
+  text: {
+    fontFamily: "Inter_600SemiBold",
+    fontSize: 13,
+    color: "#085041",
+  },
+});
+
+const heatOverlayStyles = StyleSheet.create({
+  overlay: {
+    backgroundColor: "rgba(0,0,0,0.5)",
+    borderRadius: 12,
+    alignItems: "center",
+    justifyContent: "center",
+    zIndex: 10,
+  },
+  content: { alignItems: "center", gap: 10, paddingHorizontal: 24, width: "100%" },
+  iconWrap: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: "rgba(255,255,255,0.15)",
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 2,
+  },
+  title: {
+    fontFamily: "Inter_700Bold",
+    fontSize: 16,
+    color: "#fff",
+    letterSpacing: -0.3,
+    textAlign: "center",
+  },
+  sub: {
+    fontFamily: "Inter_500Medium",
+    fontSize: 13,
+    color: "rgba(255,255,255,0.75)",
+    textAlign: "center",
+    marginBottom: 4,
+  },
+  primaryBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 7,
+    backgroundColor: "#00CEC9",
+    borderRadius: 12,
+    paddingHorizontal: 18,
+    paddingVertical: 12,
+    width: "100%",
+  },
+  primaryBtnText: {
+    fontFamily: "Inter_700Bold",
+    fontSize: 14,
+    color: "#fff",
+  },
+  secondaryBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 7,
+    borderWidth: 1.5,
+    borderColor: "rgba(255,255,255,0.55)",
+    borderRadius: 12,
+    paddingHorizontal: 18,
+    paddingVertical: 12,
+    width: "100%",
+  },
+  secondaryBtnText: {
+    fontFamily: "Inter_600SemiBold",
+    fontSize: 14,
+    color: "#fff",
+  },
+});
