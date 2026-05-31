@@ -1,6 +1,6 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import Constants from "expo-constants";
-import React, { createContext, useContext, useEffect, useState } from "react";
+import React, { createContext, useContext, useEffect, useRef, useState } from "react";
 import { Platform } from "react-native";
 import Purchases, { type CustomerInfo, type PurchasesPackage } from "react-native-purchases";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -81,6 +81,10 @@ function useSubscriptionContext() {
   const [cachedIsPro, setCachedIsPro] = useState(false);
   const [cacheLoaded, setCacheLoaded] = useState(false);
 
+  // Track the last value we wrote to Firestore so we only write on change.
+  // null = never synced this session.
+  const lastSyncedIsProRef = useRef<boolean | null>(null);
+
   useEffect(() => {
     readCachedIsPro()
       .then((val) => {
@@ -125,15 +129,17 @@ function useSubscriptionContext() {
   const liveIsPro =
     customerInfoQuery.data?.entitlements.active?.[REVENUECAT_ENTITLEMENT_IDENTIFIER] !== undefined;
 
-  // Sync cache + Firestore whenever RC data arrives
+  // Sync cache + Firestore whenever RC data arrives.
+  // Firestore write is skipped when isPro hasn't changed since last sync —
+  // prevents a write on every 60-second RC refresh cycle.
   useEffect(() => {
     if (customerInfoQuery.data === undefined) return;
-    // Update local cache whenever the live value changes
     if (liveIsPro !== cachedIsPro) {
       setCachedIsPro(liveIsPro);
     }
     void writeCachedIsPro(liveIsPro);
-    if (currentUser) {
+    if (currentUser && liveIsPro !== lastSyncedIsProRef.current) {
+      lastSyncedIsProRef.current = liveIsPro;
       void syncProStatusToFirestore(currentUser.id, customerInfoQuery.data);
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps

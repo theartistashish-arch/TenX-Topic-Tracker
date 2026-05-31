@@ -15,6 +15,8 @@ import { useSubscription } from "@/lib/revenuecat";
 
 /** Key for storing the last successful Firestore topics sync timestamp. */
 const LAST_SYNC_KEY = "tenx.topics.lastSyncAt";
+/** Re-fetch from Firestore at most once per hour — local writes keep AsyncStorage current. */
+const SYNC_TTL_MS = 60 * 60 * 1000;
 
 export const FREE_SUBJECT_LIMIT = 2;
 export const FREE_TOPIC_LIMIT = 10;
@@ -290,13 +292,16 @@ export function TopicsProvider({ children }: { children: React.ReactNode }) {
         const localRaw = await AsyncStorage.getItem(TOPICS_KEY);
         const lastSyncRaw = await AsyncStorage.getItem(LAST_SYNC_KEY);
         const lastSync = lastSyncRaw ? parseInt(lastSyncRaw, 10) : 0;
-        const fresh = Date.now() - lastSync < 5 * 60 * 1000;
+        const fresh = Date.now() - lastSync < SYNC_TTL_MS;
 
         if (currentUser) {
           if (!fresh) {
             const cloud = await getUserData(currentUser.id, "topics");
             if (cloud && Array.isArray(cloud.topics)) {
               data = cloud.topics as Topic[];
+              // Seed dirty-check ref so the first flush after a cloud read
+              // doesn't write back identical data.
+              lastSyncedJsonRef.current = JSON.stringify(data);
             }
           }
         }
@@ -325,6 +330,9 @@ export function TopicsProvider({ children }: { children: React.ReactNode }) {
   // get batched into a single Firestore write instead of N writes.
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pendingRef = useRef<Topic[] | null>(null);
+  // Tracks the JSON of the last data successfully written to Firestore so we
+  // can skip the write when the debounce fires but data hasn't actually changed.
+  const lastSyncedJsonRef = useRef<string | null>(null);
 
   const flushPersist = useCallback(async () => {
     if (debounceRef.current) {
@@ -334,10 +342,12 @@ export function TopicsProvider({ children }: { children: React.ReactNode }) {
     const next = pendingRef.current;
     if (!next) return;
     pendingRef.current = null;
-    await AsyncStorage.setItem(TOPICS_KEY, JSON.stringify(next));
-    if (currentUser) {
+    const json = JSON.stringify(next);
+    await AsyncStorage.setItem(TOPICS_KEY, json);
+    if (currentUser && json !== lastSyncedJsonRef.current) {
       try {
         await setUserData(currentUser.id, "topics", { topics: next });
+        lastSyncedJsonRef.current = json;
         await AsyncStorage.setItem(LAST_SYNC_KEY, Date.now().toString());
       } catch (err) {
         console.warn("[TenX] Firestore topics sync failed:", err);
@@ -543,6 +553,7 @@ export function TopicsProvider({ children }: { children: React.ReactNode }) {
       if (!trimmed) return;
       const idx = allTopics.findIndex((t) => t.id === id);
       if (idx < 0) return;
+      if (allTopics[idx]!.topicName === trimmed) return;
       const next = [...allTopics];
       next[idx] = { ...next[idx]!, topicName: trimmed };
       try {

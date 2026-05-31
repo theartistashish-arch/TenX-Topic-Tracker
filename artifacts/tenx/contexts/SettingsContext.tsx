@@ -13,6 +13,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { getUserData, setUserData } from "@/lib/firestore";
 
 const LAST_SYNC_KEY = "tenx.settings.lastSyncAt";
+const SYNC_TTL_MS = 60 * 60 * 1000; // 60 minutes
 
 export type ThemePref = "light" | "dark";
 
@@ -110,7 +111,7 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
 
   // ── Smart read caching ──────────────────────────────────────────────────────
   // On mount: check AsyncStorage first. Only hit Firestore if we haven't
-  // synced in the last 5 minutes. This avoids a Firestore read on every cold start.
+  // synced in the last 60 minutes. This avoids a Firestore read on every cold start.
   useEffect(() => {
     let cancelled = false;
     (async () => {
@@ -125,7 +126,7 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
       try {
         const lastSyncRaw = await AsyncStorage.getItem(LAST_SYNC_KEY);
         const lastSync = lastSyncRaw ? parseInt(lastSyncRaw, 10) : 0;
-        const fresh = Date.now() - lastSync < 5 * 60 * 1000;
+        const fresh = Date.now() - lastSync < SYNC_TTL_MS;
 
         let merged: UserSettings = DEFAULT_SETTINGS;
         const raw = await AsyncStorage.getItem(settingsKey(currentUser.id));
@@ -138,7 +139,11 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
           const cloud = await getUserData(currentUser.id, "settings");
           if (cloud && cloud.settings) {
             merged = normalize({ ...DEFAULT_SETTINGS, ...(cloud.settings as Partial<UserSettings>) });
-            await AsyncStorage.setItem(settingsKey(currentUser.id), JSON.stringify(merged));
+            const json = JSON.stringify(merged);
+            await AsyncStorage.setItem(settingsKey(currentUser.id), json);
+            // Seed dirty-check ref so the first flush after a cloud read
+            // doesn't write back identical data.
+            lastSyncedJsonRef.current = json;
           }
         }
 
@@ -158,6 +163,7 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
   // Rapid setting changes (e.g. toggling multiple switches) batch into one write.
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pendingRef = useRef<UserSettings | null>(null);
+  const lastSyncedJsonRef = useRef<string | null>(null);
 
   const flushPersist = useCallback(async () => {
     if (debounceRef.current) {
@@ -168,12 +174,16 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
     if (!next) return;
     pendingRef.current = null;
     if (currentUser) {
-      await AsyncStorage.setItem(settingsKey(currentUser.id), JSON.stringify(next));
-      try {
-        await setUserData(currentUser.id, "settings", { settings: next });
-        await AsyncStorage.setItem(LAST_SYNC_KEY, Date.now().toString());
-      } catch (err) {
-        console.warn("[TenX] Firestore settings sync failed:", err);
+      const json = JSON.stringify(next);
+      await AsyncStorage.setItem(settingsKey(currentUser.id), json);
+      if (json !== lastSyncedJsonRef.current) {
+        try {
+          await setUserData(currentUser.id, "settings", { settings: next });
+          lastSyncedJsonRef.current = json;
+          await AsyncStorage.setItem(LAST_SYNC_KEY, Date.now().toString());
+        } catch (err) {
+          console.warn("[TenX] Firestore settings sync failed:", err);
+        }
       }
     }
   }, [currentUser]);

@@ -71,6 +71,7 @@ interface AuthContextValue {
 
 const LOCAL_UID_KEY = "tenx.local.uid";
 const LOCAL_CREATED_AT_KEY = "tenx.local.createdAt";
+const PROFILE_SYNC_TTL_MS = 30 * 60 * 1000; // 30 minutes
 
 function generateLocalUid(): string {
   return "local-" + Math.random().toString(36).slice(2, 10) + Date.now().toString(36);
@@ -78,6 +79,10 @@ function generateLocalUid(): string {
 
 function profileKey(uid: string) {
   return `tenx.profile.v1.${uid}`;
+}
+
+function profileSyncKey(uid: string) {
+  return `tenx.profile.lastSyncAt.${uid}`;
 }
 
 async function loadProfile(uid: string): Promise<ProfileExtras | null> {
@@ -92,11 +97,7 @@ async function loadProfile(uid: string): Promise<ProfileExtras | null> {
 
 async function loadProfileFromFirestore(uid: string): Promise<ProfileExtras | null> {
   try {
-    // Only fetch the 4 fields we need instead of the whole document.
-    const snap = await firestore()
-      .collection("users")
-      .doc(uid)
-      .get({ source: "server" });
+    const snap = await firestore().collection("users").doc(uid).get();
     if (!snap.exists) return null;
     const data = snap.data() as Partial<ProfileExtras>;
     const profile: ProfileExtras = {
@@ -105,7 +106,10 @@ async function loadProfileFromFirestore(uid: string): Promise<ProfileExtras | nu
       schoolName: data.schoolName ?? "",
       examGoal: data.examGoal ?? "Other",
     };
-    await AsyncStorage.setItem(profileKey(uid), JSON.stringify(profile));
+    await Promise.all([
+      AsyncStorage.setItem(profileKey(uid), JSON.stringify(profile)),
+      AsyncStorage.setItem(profileSyncKey(uid), Date.now().toString()),
+    ]);
     return profile;
   } catch (err) {
     console.warn("[TenX] Firestore profile sync failed:", err);
@@ -126,7 +130,12 @@ async function saveProfile(uid: string, profile: ProfileExtras) {
       console.warn("[TenX] Firestore saveProfile failed, profile saved locally only:", err);
     }
   }
-  await AsyncStorage.setItem(profileKey(uid), JSON.stringify(profile));
+  // Update both the profile cache and the sync timestamp so the next cold
+  // start doesn't re-fetch this data we just wrote.
+  await Promise.all([
+    AsyncStorage.setItem(profileKey(uid), JSON.stringify(profile)),
+    AsyncStorage.setItem(profileSyncKey(uid), Date.now().toString()),
+  ]);
 }
 
 function fbErrorMessage(code: string, rawMessage?: string): string {
@@ -225,7 +234,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setIsNewUser(!hasProfile);
       setIsLoading(false);
 
-      void loadProfileFromFirestore(fbUser.uid).then((freshProfile) => {
+      // Only hit Firestore for the profile if the local cache is stale.
+      // Writes from saveProfile() already keep AsyncStorage up to date,
+      // so this read is only needed for cross-device sync.
+      void (async () => {
+        try {
+          const lastSyncRaw = await AsyncStorage.getItem(profileSyncKey(fbUser.uid));
+          const lastSync = lastSyncRaw ? parseInt(lastSyncRaw, 10) : 0;
+          if (Date.now() - lastSync < PROFILE_SYNC_TTL_MS) return;
+        } catch {
+          // If we can't read the timestamp, proceed with the Firestore fetch.
+        }
+        const freshProfile = await loadProfileFromFirestore(fbUser.uid);
         if (!freshProfile) return;
         setCurrentUser((prev) =>
           prev
@@ -239,7 +259,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             : prev,
         );
         setIsNewUser(false);
-      });
+      })();
     });
 
     return unsubscribe;
