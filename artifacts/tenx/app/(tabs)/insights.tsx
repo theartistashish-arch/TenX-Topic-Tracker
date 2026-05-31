@@ -1,6 +1,6 @@
 import { Feather } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
-import React, { useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
   Platform,
@@ -16,6 +16,8 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Topic, useTopics } from "@/contexts/TopicsContext";
 import { useColors } from "@/hooks/useColors";
 import { formatHoursMinutes } from "@/lib/insights";
+import { activateAdPass, checkAdPassActive } from "@/lib/adPass";
+import { useAds } from "@/lib/ads";
 import { useSubscription } from "@/lib/revenuecat";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -512,7 +514,27 @@ export default function InsightsScreen() {
   const router = useRouter();
   const { topics, isLoading } = useTopics();
   const { isPro } = useSubscription();
+  const { showRewardedAd } = useAds();
   const [timePeriod, setTimePeriod] = useState<7 | 30>(7);
+  const [hasAdPass, setHasAdPass] = useState(false);
+  const [isWatchingAd, setIsWatchingAd] = useState(false);
+
+  useEffect(() => {
+    checkAdPassActive().then(setHasAdPass).catch(() => {});
+  }, []);
+
+  const handleWatchAd = useCallback(async () => {
+    setIsWatchingAd(true);
+    try {
+      const earned = await showRewardedAd();
+      if (earned) {
+        await activateAdPass();
+        setHasAdPass(true);
+      }
+    } finally {
+      setIsWatchingAd(false);
+    }
+  }, [showRewardedAd]);
 
   const isWeb = Platform.OS === "web";
   const topInset = isWeb ? Math.max(insets.top, 67) : insets.top;
@@ -577,6 +599,15 @@ export default function InsightsScreen() {
         showsVerticalScrollIndicator={false}
         contentContainerStyle={{ paddingBottom: bottomInset + 36 }}
       >
+        {hasAdPass ? (
+          <View style={adPassBannerStyles.banner}>
+            <Feather name="check-circle" size={14} color="#085041" />
+            <Text style={adPassBannerStyles.text}>
+              Free access active · Resets at midnight
+            </Text>
+          </View>
+        ) : null}
+
         {/* ══════════════════════════════════════════════════════════════════ */}
         {/* ── SMART INSIGHTS ─────────────────────────────────────────────── */}
         {/* ══════════════════════════════════════════════════════════════════ */}
@@ -597,8 +628,12 @@ export default function InsightsScreen() {
             Auto-generated from your study history
           </Text>
 
-          {!isPro ? (
-            <ProChartOverlay onPress={() => router.push("/paywall")} />
+          {!isPro && !hasAdPass ? (
+            <ProChartOverlay
+              onWatchAd={handleWatchAd}
+              onUpgrade={() => router.push("/paywall")}
+              isWatching={isWatchingAd}
+            />
           ) : null}
 
           {smartInsights.length === 0 ? (
@@ -670,8 +705,12 @@ export default function InsightsScreen() {
             Overall difficulty distribution across all subjects
           </Text>
 
-          {!isPro ? (
-            <ProChartOverlay onPress={() => router.push("/paywall")} />
+          {!isPro && !hasAdPass ? (
+            <ProChartOverlay
+              onWatchAd={handleWatchAd}
+              onUpgrade={() => router.push("/paywall")}
+              isWatching={isWatchingAd}
+            />
           ) : null}
 
           {hardnessData.length === 0 ? (
@@ -829,8 +868,12 @@ export default function InsightsScreen() {
             Study hours per subject — tap to switch period
           </Text>
 
-          {!isPro ? (
-            <ProChartOverlay onPress={() => router.push("/paywall")} />
+          {!isPro && !hasAdPass ? (
+            <ProChartOverlay
+              onWatchAd={handleWatchAd}
+              onUpgrade={() => router.push("/paywall")}
+              isWatching={isWatchingAd}
+            />
           ) : null}
 
           {/* Period toggle */}
@@ -1176,29 +1219,68 @@ function makeStyles(c: ReturnType<typeof useColors>) {
   });
 }
 
-function ProChartOverlay({ onPress }: { onPress: () => void }) {
+function ProChartOverlay({
+  onWatchAd,
+  onUpgrade,
+  isWatching,
+}: {
+  onWatchAd: () => void;
+  onUpgrade: () => void;
+  isWatching: boolean;
+}) {
   return (
-    <Pressable
-      onPress={onPress}
+    <View
       style={[StyleSheet.absoluteFillObject, proOverlayStyles.overlay]}
+      pointerEvents="box-none"
     >
       <View style={proOverlayStyles.content}>
-        <Feather name="lock" size={18} color="#fff" />
-        <Text style={proOverlayStyles.title}>Pro Feature</Text>
-        <Text style={proOverlayStyles.sub}>
-          Upgrade to unlock detailed analytics
-        </Text>
-        <View style={proOverlayStyles.btn}>
-          <Text style={proOverlayStyles.btnText}>Upgrade to Pro</Text>
+        <View style={proOverlayStyles.iconWrap}>
+          <Feather name="unlock" size={22} color="#fff" />
         </View>
+        <Text style={proOverlayStyles.title}>Unlock all insights free today</Text>
+        <Text style={proOverlayStyles.sub}>Watch a short ad · Resets at midnight</Text>
+        <Pressable
+          onPress={onWatchAd}
+          disabled={isWatching}
+          style={[proOverlayStyles.primaryBtn, isWatching && { opacity: 0.6 }]}
+        >
+          <Feather name="play" size={13} color="#fff" />
+          <Text style={proOverlayStyles.primaryBtnText}>
+            {isWatching ? "Loading ad…" : "Watch ad — free for today"}
+          </Text>
+        </Pressable>
+        <Pressable onPress={onUpgrade} style={proOverlayStyles.secondaryBtn}>
+          <Feather name="star" size={13} color="#fff" />
+          <Text style={proOverlayStyles.secondaryBtnText}>Go Pro — remove ads forever</Text>
+        </Pressable>
       </View>
-    </Pressable>
+    </View>
   );
 }
 
+const adPassBannerStyles = StyleSheet.create({
+  banner: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    backgroundColor: "#E1F5EE",
+    marginHorizontal: 16,
+    marginTop: 12,
+    marginBottom: 4,
+    paddingHorizontal: 14,
+    paddingVertical: 9,
+    borderRadius: 10,
+  },
+  text: {
+    fontFamily: "Inter_600SemiBold",
+    fontSize: 13,
+    color: "#085041",
+  },
+});
+
 const proOverlayStyles = StyleSheet.create({
   overlay: {
-    backgroundColor: "rgba(11,16,32,0.72)",
+    backgroundColor: "rgba(0,0,0,0.5)",
     borderRadius: 16,
     alignItems: "center",
     justifyContent: "center",
@@ -1208,29 +1290,61 @@ const proOverlayStyles = StyleSheet.create({
     top: 72,
     bottom: 8,
   },
-  content: { alignItems: "center", gap: 6, paddingHorizontal: 24 },
+  content: { alignItems: "center", gap: 10, paddingHorizontal: 24, width: "100%" },
+  iconWrap: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: "rgba(255,255,255,0.15)",
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 2,
+  },
   title: {
     fontFamily: "Inter_700Bold",
     fontSize: 16,
     color: "#fff",
     letterSpacing: -0.3,
+    textAlign: "center",
   },
   sub: {
     fontFamily: "Inter_500Medium",
     fontSize: 13,
     color: "rgba(255,255,255,0.75)",
     textAlign: "center",
+    marginBottom: 4,
   },
-  btn: {
-    marginTop: 6,
-    backgroundColor: "#4f46e5",
-    borderRadius: 999,
+  primaryBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 7,
+    backgroundColor: "#00CEC9",
+    borderRadius: 12,
     paddingHorizontal: 18,
-    paddingVertical: 8,
+    paddingVertical: 12,
+    width: "100%",
   },
-  btnText: {
+  primaryBtnText: {
     fontFamily: "Inter_700Bold",
-    fontSize: 13,
+    fontSize: 14,
+    color: "#fff",
+  },
+  secondaryBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 7,
+    borderWidth: 1.5,
+    borderColor: "rgba(255,255,255,0.55)",
+    borderRadius: 12,
+    paddingHorizontal: 18,
+    paddingVertical: 12,
+    width: "100%",
+  },
+  secondaryBtnText: {
+    fontFamily: "Inter_600SemiBold",
+    fontSize: 14,
     color: "#fff",
   },
 });

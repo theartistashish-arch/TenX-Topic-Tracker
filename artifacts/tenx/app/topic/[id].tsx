@@ -1,7 +1,7 @@
 import { Feather } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
 import { useLocalSearchParams, useRouter } from "expo-router";
-import React, { useCallback, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import {
   Modal,
   Platform,
@@ -37,6 +37,8 @@ import {
   forgettingCurvePoints,
   nextReviewLabel,
 } from "@/lib/topicAnalytics";
+import { activateAdPass, checkAdPassActive } from "@/lib/adPass";
+import { useAds } from "@/lib/ads";
 import { useSubscription } from "@/lib/revenuecat";
 
 const DIFF_COLOR: Record<Difficulty, string> = {
@@ -100,6 +102,26 @@ export default function TopicDetailScreen() {
   const { getTopic, updateTopicMeta, deleteTopic } = useTopics();
   const { settings } = useSettings();
   const { isPro } = useSubscription();
+  const { showRewardedAd } = useAds();
+  const [hasAdPass, setHasAdPass] = useState(false);
+  const [isWatchingAd, setIsWatchingAd] = useState(false);
+
+  useEffect(() => {
+    checkAdPassActive().then(setHasAdPass).catch(() => {});
+  }, []);
+
+  const handleWatchAd = useCallback(async () => {
+    setIsWatchingAd(true);
+    try {
+      const earned = await showRewardedAd();
+      if (earned) {
+        await activateAdPass();
+        setHasAdPass(true);
+      }
+    } finally {
+      setIsWatchingAd(false);
+    }
+  }, [showRewardedAd]);
 
   const isWeb = Platform.OS === "web";
   const topInset = isWeb ? Math.max(insets.top, 67) : insets.top;
@@ -226,6 +248,16 @@ export default function TopicDetailScreen() {
           />
         </ScrollView>
 
+        {/* ─── AD PASS BANNER ─── */}
+        {hasAdPass ? (
+          <View style={adPassBannerStyles.banner}>
+            <Feather name="check-circle" size={14} color="#085041" />
+            <Text style={adPassBannerStyles.text}>
+              Free access active · Resets at midnight
+            </Text>
+          </View>
+        ) : null}
+
         {/* ─── BAR CHART ─── */}
         <SectionHeader colors={colors} title="Revision Time" icon="bar-chart-2" />
         <View style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border }]}>
@@ -242,7 +274,13 @@ export default function TopicDetailScreen() {
           <Text style={[styles.chartHint, { color: colors.mutedForeground }]}>
             Green = easy · Amber = medium · Red = hard · Faint = planned
           </Text>
-          {!isPro ? <ProChartOverlay onPress={() => router.push("/paywall")} /> : null}
+          {!isPro && !hasAdPass ? (
+            <ProChartOverlay
+              onWatchAd={handleWatchAd}
+              onUpgrade={() => router.push("/paywall")}
+              isWatching={isWatchingAd}
+            />
+          ) : null}
         </View>
 
         {/* ─── REVISION INSIGHT ─── */}
@@ -308,7 +346,13 @@ export default function TopicDetailScreen() {
               {reviewText}
             </Text>
           </View>
-          {!isPro ? <ProChartOverlay onPress={() => router.push("/paywall")} /> : null}
+          {!isPro && !hasAdPass ? (
+            <ProChartOverlay
+              onWatchAd={handleWatchAd}
+              onUpgrade={() => router.push("/paywall")}
+              isWatching={isWatchingAd}
+            />
+          ) : null}
         </View>
 
         {/* ─── SCHEDULE TOGGLE ─── */}
@@ -508,33 +552,83 @@ function SessionLogRow({
   );
 }
 
-function ProChartOverlay({ onPress }: { onPress: () => void }) {
+function ProChartOverlay({
+  onWatchAd,
+  onUpgrade,
+  isWatching,
+}: {
+  onWatchAd: () => void;
+  onUpgrade: () => void;
+  isWatching: boolean;
+}) {
   return (
-    <Pressable
-      onPress={onPress}
+    <View
       style={[StyleSheet.absoluteFillObject, proOverlayStyles.overlay]}
+      pointerEvents="box-none"
     >
       <View style={proOverlayStyles.content}>
-        <Feather name="lock" size={18} color="#fff" />
-        <Text style={proOverlayStyles.title}>Pro Feature</Text>
-        <Text style={proOverlayStyles.sub}>Upgrade to unlock detailed charts</Text>
-        <View style={proOverlayStyles.btn}>
-          <Text style={proOverlayStyles.btnText}>Upgrade to Pro</Text>
+        <View style={proOverlayStyles.iconWrap}>
+          <Feather name="unlock" size={22} color="#fff" />
         </View>
+        <Text style={proOverlayStyles.title}>Unlock all insights free today</Text>
+        <Text style={proOverlayStyles.sub}>Watch a short ad · Resets at midnight</Text>
+        <Pressable
+          onPress={onWatchAd}
+          disabled={isWatching}
+          style={[proOverlayStyles.primaryBtn, isWatching && { opacity: 0.6 }]}
+        >
+          <Feather name="play" size={13} color="#fff" />
+          <Text style={proOverlayStyles.primaryBtnText}>
+            {isWatching ? "Loading ad…" : "Watch ad — free for today"}
+          </Text>
+        </Pressable>
+        <Pressable onPress={onUpgrade} style={proOverlayStyles.secondaryBtn}>
+          <Feather name="star" size={13} color="#fff" />
+          <Text style={proOverlayStyles.secondaryBtnText}>Go Pro — remove ads forever</Text>
+        </Pressable>
       </View>
-    </Pressable>
+    </View>
   );
 }
 
+const adPassBannerStyles = StyleSheet.create({
+  banner: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    backgroundColor: "#E1F5EE",
+    marginHorizontal: 16,
+    marginTop: 12,
+    marginBottom: 4,
+    paddingHorizontal: 14,
+    paddingVertical: 9,
+    borderRadius: 10,
+  },
+  text: {
+    fontFamily: "Inter_600SemiBold",
+    fontSize: 13,
+    color: "#085041",
+  },
+});
+
 const proOverlayStyles = StyleSheet.create({
   overlay: {
-    backgroundColor: "rgba(11,16,32,0.72)",
+    backgroundColor: "rgba(0,0,0,0.5)",
     borderRadius: 16,
     alignItems: "center",
     justifyContent: "center",
     zIndex: 10,
   },
-  content: { alignItems: "center", gap: 6, paddingHorizontal: 24 },
+  content: { alignItems: "center", gap: 10, paddingHorizontal: 24, width: "100%" },
+  iconWrap: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: "rgba(255,255,255,0.15)",
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 2,
+  },
   title: {
     fontFamily: "Inter_700Bold",
     fontSize: 16,
@@ -546,17 +640,39 @@ const proOverlayStyles = StyleSheet.create({
     fontSize: 13,
     color: "rgba(255,255,255,0.75)",
     textAlign: "center",
+    marginBottom: 4,
   },
-  btn: {
-    marginTop: 6,
-    backgroundColor: "#4f46e5",
-    borderRadius: 999,
+  primaryBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 7,
+    backgroundColor: "#00CEC9",
+    borderRadius: 12,
     paddingHorizontal: 18,
-    paddingVertical: 8,
+    paddingVertical: 12,
+    width: "100%",
   },
-  btnText: {
+  primaryBtnText: {
     fontFamily: "Inter_700Bold",
-    fontSize: 13,
+    fontSize: 14,
+    color: "#fff",
+  },
+  secondaryBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 7,
+    borderWidth: 1.5,
+    borderColor: "rgba(255,255,255,0.55)",
+    borderRadius: 12,
+    paddingHorizontal: 18,
+    paddingVertical: 12,
+    width: "100%",
+  },
+  secondaryBtnText: {
+    fontFamily: "Inter_600SemiBold",
+    fontSize: 14,
     color: "#fff",
   },
 });
