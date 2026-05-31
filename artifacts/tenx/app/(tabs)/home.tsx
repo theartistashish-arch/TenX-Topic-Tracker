@@ -87,37 +87,23 @@ export default function HomeScreen() {
   const { topics, isLoading: topicsLoading, rescheduleTopics, shiftAllDueDates } = useTopics();
 
   // ── Helpers for "Today's Plan" dashboard ─────────────────────────────────
-  const todayStart = useMemo(() => {
-    const d = new Date();
-    d.setHours(0, 0, 0, 0);
-    return d.getTime();
-  }, []);
+  // dateKey refreshes on every focus so "studied today" clears correctly after midnight.
+  const [dateKey, setDateKey] = useState(() => new Date().toDateString());
+  useFocusEffect(
+    useCallback(() => {
+      setDateKey(new Date().toDateString());
+    }, []),
+  );
   const isStudiedToday = useCallback(
     (t: Topic) => {
       if (!t.lastStudiedAt) return false;
-      return t.lastStudiedAt >= todayStart;
+      const d = new Date();
+      d.setHours(0, 0, 0, 0);
+      return t.lastStudiedAt >= d.getTime();
     },
-    [todayStart],
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [dateKey],
   );
-  function subjectColor(subject: string): string {
-    let h = 0;
-    for (let i = 0; i < subject.length; i++) h = (h * 31 + subject.charCodeAt(i)) % 360;
-    return `hsl(${h}, 65%, 55%)`;
-  }
-  function subjectBg(subject: string): string {
-    let h = 0;
-    for (let i = 0; i < subject.length; i++) h = (h * 31 + subject.charCodeAt(i)) % 360;
-    return `hsla(${h}, 70%, 55%, 0.14)`;
-  }
-  function subjectInitials(subject: string): string {
-    return subject
-      .split(/\s+/)
-      .filter(Boolean)
-      .slice(0, 2)
-      .map((w) => w[0]?.toUpperCase() ?? "")
-      .join("")
-      .slice(0, 2);
-  }
   const { settings, updateSettings, isLoading: settingsLoading } = useSettings();
   const { isPro, customerInfo } = useSubscription();
   const {
@@ -545,6 +531,7 @@ export default function HomeScreen() {
           visible={menuOpen}
           onClose={() => setMenuOpen(false)}
           isPro={isPro}
+          streak={streak}
           onShowPlan={() => setPlanModalOpen(true)}
           onShowAbout={() => setAboutModalOpen(true)}
         />
@@ -581,6 +568,10 @@ export default function HomeScreen() {
       <FlatList
         data={data}
         keyExtractor={(it) => it.id}
+        removeClippedSubviews
+        windowSize={5}
+        maxToRenderPerBatch={8}
+        initialNumToRender={10}
         contentContainerStyle={{
           paddingTop: 8,
           paddingBottom: bottomInset + 28,
@@ -899,6 +890,7 @@ export default function HomeScreen() {
         visible={menuOpen}
         onClose={() => setMenuOpen(false)}
         isPro={isPro}
+        streak={streak}
         onShowPlan={() => setPlanModalOpen(true)}
         onShowAbout={() => setAboutModalOpen(true)}
       />
@@ -1161,12 +1153,14 @@ function MenuSheet({
   visible,
   onClose,
   isPro,
+  streak,
   onShowPlan,
   onShowAbout,
 }: {
   visible: boolean;
   onClose: () => void;
   isPro: boolean;
+  streak: number;
   onShowPlan: () => void;
   onShowAbout: () => void;
 }) {
@@ -1218,7 +1212,6 @@ function MenuSheet({
     return parts.map((p: string) => p.charAt(0).toUpperCase()).join("") || "?";
   }, [currentUser]);
 
-  const streak = useMemo(() => buildStreak(topics), [topics]);
   const totalTopics = topics.length;
   const dueCount = useMemo(() => {
     const now = Date.now();

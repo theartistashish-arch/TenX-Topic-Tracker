@@ -301,10 +301,16 @@ export function TopicsProvider({ children }: { children: React.ReactNode }) {
           }
         }
         if (data.length === 0 && localRaw) {
-          const parsed = JSON.parse(localRaw) as Topic[];
-          if (Array.isArray(parsed)) data = parsed;
+          try {
+            const parsed = JSON.parse(localRaw) as Topic[];
+            if (Array.isArray(parsed)) data = parsed;
+          } catch {
+            // corrupted cache — proceed with empty topics
+          }
         }
         if (!cancelled) setAllTopics(data);
+      } catch {
+        // Unexpected storage or network error — app continues with empty topics
       } finally {
         if (!cancelled) setIsLoading(false);
       }

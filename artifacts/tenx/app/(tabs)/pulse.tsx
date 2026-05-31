@@ -3,13 +3,13 @@ import { useRouter } from "expo-router";
 import React, { useMemo } from "react";
 import {
   ActivityIndicator,
-  Dimensions,
   Platform,
   Pressable,
   ScrollView,
   StyleSheet,
   Text,
   View,
+  useWindowDimensions,
 } from "react-native";
 import { Circle, G, Svg } from "react-native-svg";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -50,10 +50,6 @@ const GAP_ARC = 8;
 // Heatmap sizing — 10 cells per row, computed from screen width
 const HEAT_PER_ROW = 10;
 const HEAT_GAP = 4;
-const HEAT_CELL_SIZE = Math.floor(
-  (Dimensions.get("window").width - 40 - (HEAT_PER_ROW - 1) * HEAT_GAP) /
-    HEAT_PER_ROW,
-);
 
 // Goal bar chart fixed height
 const CHART_H = 80;
@@ -347,6 +343,10 @@ export default function PulseScreen() {
   const router = useRouter();
   const { topics, isLoading } = useTopics();
   const { settings } = useSettings();
+  const { width: windowWidth } = useWindowDimensions();
+  const heatCellSize = Math.floor(
+    (windowWidth - 40 - (HEAT_PER_ROW - 1) * HEAT_GAP) / HEAT_PER_ROW,
+  );
 
   const isWeb = Platform.OS === "web";
   const topInset = isWeb ? Math.max(insets.top, 67) : insets.top;
@@ -554,7 +554,7 @@ export default function PulseScreen() {
                   key={i}
                   style={[
                     styles.heatCell,
-                    { backgroundColor: bg },
+                    { backgroundColor: bg, width: heatCellSize, height: heatCellSize },
                     isToday && styles.heatCellToday,
                   ]}
                 />
@@ -912,8 +912,6 @@ function makeStyles(c: ReturnType<typeof useColors>) {
     // Heatmap
     heatmapGrid: { flexDirection: "row", flexWrap: "wrap", gap: HEAT_GAP },
     heatCell: {
-      width: HEAT_CELL_SIZE,
-      height: HEAT_CELL_SIZE,
       borderRadius: 4,
     },
     heatCellToday: { borderWidth: 1.5, borderColor: "#22c55e" },

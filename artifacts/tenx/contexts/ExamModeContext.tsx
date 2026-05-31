@@ -75,7 +75,7 @@ export function ExamModeProvider({ children }: { children: React.ReactNode }) {
         const raw = await AsyncStorage.getItem(EXAM_MODE_KEY);
         if (raw) {
           const parsed = JSON.parse(raw) as ExamModeState;
-          setState(parsed);
+          if (parsed && typeof parsed === "object") setState(parsed);
           return;
         }
         // Migrate v1 → v2
@@ -88,10 +88,10 @@ export function ExamModeProvider({ children }: { children: React.ReactNode }) {
             examDate: legacy.examDate ?? null,
           };
           setState(migrated);
-          await AsyncStorage.setItem(EXAM_MODE_KEY, JSON.stringify(migrated));
+          await AsyncStorage.setItem(EXAM_MODE_KEY, JSON.stringify(migrated)).catch(() => {});
         }
       } catch {
-        // ignore
+        // Corrupted storage or parse error — start from default state
       }
     })();
   }, []);
@@ -110,33 +110,36 @@ export function ExamModeProvider({ children }: { children: React.ReactNode }) {
 
   const setExamModeActive = useCallback(
     async (active: boolean) => {
+      let next!: ExamModeState;
       setState((prev) => {
-        const next = { ...prev, examModeActive: active };
-        persist(next);
+        next = { ...prev, examModeActive: active };
         return next;
       });
+      await persist(next);
     },
     [persist],
   );
 
   const setExamSubjects = useCallback(
     async (subjects: string[]) => {
+      let next!: ExamModeState;
       setState((prev) => {
-        const next = { ...prev, examSubjects: subjects };
-        persist(next);
+        next = { ...prev, examSubjects: subjects };
         return next;
       });
+      await persist(next);
     },
     [persist],
   );
 
   const setExamDate = useCallback(
     async (ts: number | null) => {
+      let next!: ExamModeState;
       setState((prev) => {
-        const next = { ...prev, examDate: ts };
-        persist(next);
+        next = { ...prev, examDate: ts };
         return next;
       });
+      await persist(next);
     },
     [persist],
   );

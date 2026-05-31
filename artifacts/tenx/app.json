@@ -30,12 +30,10 @@
       "softwareKeyboardLayoutMode": "resize",
       "statusBar": {
         "style": "auto",
-        "translucent": true,
-        "backgroundColor": "#0b1020"
+        "translucent": true
       },
       "navigationBar": {
-        "barStyle": "dark-content",
-        "backgroundColor": "#0b1020"
+        "barStyle": "dark-content"
       },
       "permissions": [
         "android.permission.SCHEDULE_EXACT_ALARM",
@@ -51,6 +49,12 @@
       "favicon": "./assets/images/icon.png"
     },
     "plugins": [
+      [
+        "expo-system-ui",
+        {
+          "backgroundColor": "#0b1020"
+        }
+      ],
       "@react-native-firebase/app",
       "@react-native-firebase/auth",
       "@react-native-firebase/crashlytics",

@@ -32,7 +32,7 @@ import { useSettings } from "@/contexts/SettingsContext";
 import { Difficulty, SRSchedule, computeSR, useTopics } from "@/contexts/TopicsContext";
 import { useColors } from "@/hooks/useColors";
 import { startAlarm } from "@/lib/feedback";
-import { FOCUS_STATE_KEY } from "@/lib/focusStorage";
+import { FOCUS_STATE_KEY, setFocusSessionActive } from "@/lib/focusStorage";
 import {
   TIMER_NOTIF_PREFIX,
   cancelTodayStreakAlert,
@@ -195,7 +195,7 @@ export default function FocusScreen() {
   const autoStartedRef = useRef(false);
   const lastTickRef = useRef<number | null>(null);
   const prevAppState = useRef<AppStateStatus>(AppState.currentState);
-  const pulse = useRef(new (require("react-native").Animated.Value)(1)).current;
+  const pulse = useRef(new Animated.Value(1)).current;
   // Used to distinguish phone call (inactive stays) from app switch (inactive → background quickly)
   const callDetectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   // Holds the stop() function for the currently-running alarm loop (break/after-break alert)
@@ -221,6 +221,12 @@ export default function FocusScreen() {
   useEffect(() => { remainingRef.current = remaining; }, [remaining]);
   useEffect(() => { pauseCountRef.current = pauseCount; }, [pauseCount]);
   useEffect(() => { pausedRef.current = paused; }, [paused]);
+
+  // Block OTA reloads while focus screen is mounted
+  useEffect(() => {
+    setFocusSessionActive(true);
+    return () => setFocusSessionActive(false);
+  }, []);
 
   // ── Restore state from AsyncStorage on mount ───────────────────────────────
   useEffect(() => {

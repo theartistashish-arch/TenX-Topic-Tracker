@@ -12,7 +12,8 @@ import { Asset } from "expo-asset";
 import * as SplashScreen from "expo-splash-screen";
 import * as Updates from "expo-updates";
 import React, { useCallback, useEffect, useRef, useState } from "react";
-import { AppState, AppStateStatus, Platform, StatusBar } from "react-native";
+import { AppState, AppStateStatus, Platform } from "react-native";
+import { StatusBar } from "expo-status-bar";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { KeyboardProvider } from "react-native-keyboard-controller";
 import { SafeAreaProvider } from "react-native-safe-area-context";
@@ -28,6 +29,7 @@ import { useReviewPrompt } from "@/hooks/useReviewPrompt";
 import { AdsProvider } from "@/lib/ads";
 import { recordAppOpen } from "@/lib/absenceDetection";
 import { REVISION_NOTIF_PREFIX, isTimerNotification, scheduleDailyNotifications, scheduleComebackNotification, ensureTimerChannel } from "@/lib/notifications";
+import { focusSessionActive } from "@/lib/focusStorage";
 import { initializeRevenueCat, SubscriptionProvider } from "@/lib/revenuecat";
 
 // Show revision reminders in foreground; suppress timer alarms (handled in-app).
@@ -221,11 +223,7 @@ function RootLayoutNav() {
   const isDark = settings.theme === "dark";
   return (
     <>
-      <StatusBar
-        barStyle={isDark ? "light-content" : "dark-content"}
-        backgroundColor={isDark ? "#0b1020" : "#ffffff"}
-        translucent={false}
-      />
+      <StatusBar style={isDark ? "light" : "dark"} translucent />
       <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: colors.background } }}>
         <Stack.Screen name="index" />
         <Stack.Screen name="onboarding" />
@@ -294,7 +292,7 @@ export default function RootLayout() {
     void (async () => {
       try {
         const update = await Updates.checkForUpdateAsync();
-        if (update.isAvailable) {
+        if (update.isAvailable && !focusSessionActive) {
           await Updates.fetchUpdateAsync();
           await Updates.reloadAsync();
         }
