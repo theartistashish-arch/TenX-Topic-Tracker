@@ -185,6 +185,7 @@ export default function FocusScreen() {
   const [showAfterBreakModal, setShowAfterBreakModal] = useState(false);
   const [showDndReminder, setShowDndReminder] = useState(false);
   const [showExactAlarmModal, setShowExactAlarmModal] = useState(false);
+  const [exactAlarmDontShow, setExactAlarmDontShow] = useState(false);
   const [tipIndex, setTipIndex] = useState(() =>
     Math.floor(Math.random() * ALL_BREAK_TIPS.length),
   );
@@ -647,9 +648,16 @@ export default function FocusScreen() {
       // the user must grant in system settings — it's not a standard prompt.
       // If it's missing, the OS notification may arrive late or not at all when
       // the screen is off. Show a one-time modal with a direct link to settings.
-      canScheduleExactAlarmsAsync().then((can) => {
-        if (!can) setShowExactAlarmModal(true);
-      }).catch(() => {});
+      // Skip entirely if user previously dismissed with "Don't show again".
+      void (async () => {
+        try {
+          if (Platform.OS === "android" && (Platform.Version as number) < 31) return;
+          const dismissed = await AsyncStorage.getItem("exactAlarmPromptDismissed");
+          if (dismissed === "true") return;
+          const can = await canScheduleExactAlarmsAsync();
+          if (!can) setShowExactAlarmModal(true);
+        } catch { /* ignore */ }
+      })();
     }
   }, []);
 
@@ -1136,15 +1144,41 @@ export default function FocusScreen() {
               <Text style={styles.modalSub}>
                 To ring at the exact moment your timer ends — even with the screen off — this app needs permission to schedule exact alarms. Without it, the alarm may arrive late.
               </Text>
+
+              {/* Don't show again checkbox */}
+              <Pressable
+                onPress={() => setExactAlarmDontShow((p) => !p)}
+                style={styles.checkboxRow}
+              >
+                <View style={[
+                  styles.checkbox,
+                  exactAlarmDontShow && styles.checkboxChecked,
+                ]}>
+                  {exactAlarmDontShow && (
+                    <Feather name="check" size={11} color="#22d3ee" />
+                  )}
+                </View>
+                <Text style={styles.checkboxLabel}>Don't show again</Text>
+              </Pressable>
+
               <View style={styles.modalRow}>
                 <Pressable
-                  onPress={() => setShowExactAlarmModal(false)}
+                  onPress={() => {
+                    setShowExactAlarmModal(false);
+                    if (exactAlarmDontShow) {
+                      AsyncStorage.setItem("exactAlarmPromptDismissed", "true").catch(() => {});
+                    }
+                  }}
                   style={({ pressed }) => [styles.modalSecondary, { opacity: pressed ? 0.85 : 1 }]}
                 >
                   <Text style={styles.modalSecondaryText}>Skip</Text>
                 </Pressable>
                 <Pressable
-                  onPress={() => { setShowExactAlarmModal(false); openExactAlarmSettings(); }}
+                  onPress={() => {
+                    setShowExactAlarmModal(false);
+                    AsyncStorage.setItem("exactAlarmPromptDismissed", "true").catch(() => {});
+                    openExactAlarmSettings();
+                  }}
                   style={({ pressed }) => [styles.modalPrimary, { opacity: pressed ? 0.9 : 1 }]}
                 >
                   <Text style={styles.modalPrimaryText}>Open Settings</Text>
@@ -1669,6 +1703,32 @@ const styles = StyleSheet.create({
     fontFamily: "Inter_500Medium",
     fontSize: 14,
     textAlign: "center",
+  },
+  checkboxRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    alignSelf: "stretch",
+    paddingVertical: 2,
+  },
+  checkbox: {
+    width: 20,
+    height: 20,
+    borderRadius: 6,
+    borderWidth: 1.5,
+    borderColor: "rgba(255,255,255,0.3)",
+    backgroundColor: "transparent",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  checkboxChecked: {
+    borderColor: "#22d3ee",
+    backgroundColor: "rgba(34,211,238,0.15)",
+  },
+  checkboxLabel: {
+    color: "rgba(255,255,255,0.65)",
+    fontFamily: "Inter_500Medium",
+    fontSize: 13,
   },
   modalRow: { flexDirection: "row", gap: 12 },
   modalSecondary: {
