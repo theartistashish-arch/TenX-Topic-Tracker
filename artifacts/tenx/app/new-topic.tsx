@@ -5,6 +5,7 @@ import * as Haptics from "expo-haptics";
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
+  Modal,
   Platform,
   Pressable,
   StyleSheet,
@@ -17,13 +18,16 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { FormField } from "@/components/FormField";
 import { PrimaryButton } from "@/components/PrimaryButton";
-import { useTopics } from "@/contexts/TopicsContext";
+import {
+  FREE_SUBJECT_LIMIT,
+  FREE_TOPIC_LIMIT,
+  useTopics,
+} from "@/contexts/TopicsContext";
 import { useColors } from "@/hooks/useColors";
 import { useAds } from "@/lib/ads";
 
 const LAST_SUBJECT_KEY = "tenx.lastSubject";
 
-/** Generate a soft pastel colour from a string seed. */
 function stringToColor(str: string): string {
   let h = 0;
   for (let i = 0; i < str.length; i++) h = (h * 31 + str.charCodeAt(i)) % 360;
@@ -47,13 +51,16 @@ export default function NewTopicScreen() {
   const [topicName, setTopicName] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+
+  // ── Limit modal state ─────────────────────────────────────────────────────
+  const [limitModal, setLimitModal] = useState<"subject_limit" | "topic_limit" | null>(null);
   const [watchingAd, setWatchingAd] = useState(false);
+  const [adError, setAdError] = useState<string | null>(null);
 
   // ── Subject combobox state ────────────────────────────────────────────────
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const topicInputRef = useRef<TextInput>(null);
 
-  // Pre-fill subject from last used
   useEffect(() => {
     void (async () => {
       try {
@@ -76,7 +83,7 @@ export default function NewTopicScreen() {
   }, [existingSubjects, subject]);
 
   const showCreateNew = subject.trim().length > 0 && !existingSubjects.some(
-    (s) => s.toLowerCase() === subject.trim().toLowerCase()
+    (s) => s.toLowerCase() === subject.trim().toLowerCase(),
   );
 
   const selectSubject = (val: string) => {
@@ -89,6 +96,24 @@ export default function NewTopicScreen() {
   const topInset = isWeb ? Math.max(insets.top, 67) : insets.top;
   const bottomInset = isWeb ? Math.max(insets.bottom, 34) : insets.bottom;
 
+  // ── Shared topic creation helper ──────────────────────────────────────────
+  const createAndNavigate = async (bypassGate: boolean) => {
+    setSubmitting(true);
+    const created = await addTopic({ subject, topicName, bypassGate });
+    setSubmitting(false);
+    if (!created) {
+      setError("Could not save topic. Try again.");
+      return false;
+    }
+    void AsyncStorage.setItem(LAST_SUBJECT_KEY, subject.trim());
+    if (Platform.OS !== "web") {
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
+    }
+    router.replace({ pathname: "/pre-focus", params: { topicId: created.id } });
+    return true;
+  };
+
+  // ── START STUDYING handler ────────────────────────────────────────────────
   const handleSave = async () => {
     setError(null);
     if (!subject.trim() || !topicName.trim()) {
@@ -99,65 +124,56 @@ export default function NewTopicScreen() {
     const gate = checkAddTopicGate(subject);
 
     if (!gate.allowed) {
-      // If a daily bonus slot is available, use it to bypass whichever cap was hit
       if (bonusTopicsRemaining > 0) {
-        setSubmitting(true);
-        const created = await addTopic({ subject, topicName, bypassGate: true });
-        if (created) await consumeBonusTopic();
-        setSubmitting(false);
-        if (!created) {
-          setError("Could not save topic. Try again.");
-          return;
-        }
-        void AsyncStorage.setItem(LAST_SUBJECT_KEY, subject.trim());
-        if (Platform.OS !== "web") {
-          Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
-        }
-        router.replace({ pathname: "/pre-focus", params: { topicId: created.id } });
+        // Daily bonus slot available — bypass gate and proceed immediately.
+        const ok = await createAndNavigate(true);
+        if (ok) await consumeBonusTopic();
         return;
       }
-      // No bonus — gate banner + rewarded ad button guide the user
+      // No bonus — show the contextual limit modal.
+      setAdError(null);
+      setLimitModal(gate.reason);
       return;
     }
 
-    setSubmitting(true);
-    const created = await addTopic({ subject, topicName });
-    setSubmitting(false);
-    if (!created) {
-      setError("Could not save topic. Try again.");
-      return;
-    }
-    void AsyncStorage.setItem(LAST_SUBJECT_KEY, subject.trim());
-    if (Platform.OS !== "web") {
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
-    }
-    router.replace({ pathname: "/pre-focus", params: { topicId: created.id } });
+    await createAndNavigate(false);
   };
 
-  const handleWatchAd = async () => {
-    setError(null);
+  // ── Watch ad → grant bonus → create topic → navigate (one tap flow) ───────
+  const handleWatchAdAndProceed = async () => {
+    setAdError(null);
     setWatchingAd(true);
     const earned = await showRewardedAd();
     setWatchingAd(false);
-    if (earned) {
-      await grantBonusTopic();
-      if (Platform.OS !== "web") {
-        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
-      }
-    } else {
-      if (Platform.OS !== "web") {
-        setError("Ad not completed. Watch the full ad to unlock a bonus topic.");
-      }
+
+    if (!earned) {
+      setAdError("Ad not completed. Watch the full ad to unlock a slot.");
+      return;
     }
+
+    await grantBonusTopic();
+    if (Platform.OS !== "web") {
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
+    }
+    setLimitModal(null);
+    const ok = await createAndNavigate(true);
+    if (ok) await consumeBonusTopic();
+  };
+
+  const handleUpgradeToPro = () => {
+    setLimitModal(null);
+    router.push("/paywall");
   };
 
   const handleClose = () => router.back();
 
-  const liveGate = subject.trim() ? checkAddTopicGate(subject) : null;
-  const bonusActive = bonusTopicsRemaining > 0;
-  // Show rewarded ad button for both topic_limit and subject_limit — the bonus
-  // slot bypasses whichever cap was hit (one extra creation per rewarded ad per day).
-  const showRewardedAdButton = liveGate && !liveGate.allowed && !bonusActive;
+  // ── Limit modal copy ──────────────────────────────────────────────────────
+  const modalTitle =
+    limitModal === "subject_limit" ? "Subject Limit Reached" : "Topic Limit Reached";
+  const modalSubtitle =
+    limitModal === "subject_limit"
+      ? `You've used all ${FREE_SUBJECT_LIMIT} free subject slots`
+      : `You've used all ${FREE_TOPIC_LIMIT} free topic slots for this subject`;
 
   return (
     <View style={[styles.root, { backgroundColor: colors.background }]}>
@@ -184,7 +200,7 @@ export default function NewTopicScreen() {
         </Text>
 
         <View style={styles.form}>
-          {/* ── Subject combobox ──────────────────────────────────────────────── */}
+          {/* ── Subject combobox ──────────────────────────────────────────── */}
           <View>
             <Text style={[styles.fieldLabel, { color: colors.mutedForeground }]}>Subject</Text>
             <View style={{ position: "relative" }}>
@@ -274,59 +290,6 @@ export default function NewTopicScreen() {
             ref={topicInputRef as never}
           />
 
-          {liveGate && !liveGate.allowed ? (
-            <Pressable
-              onPress={bonusActive ? undefined : () => router.replace("/paywall")}
-              style={[
-                styles.gateBanner,
-                bonusActive
-                  ? { backgroundColor: "#22c55e18", borderColor: "#22c55e40" }
-                  : { backgroundColor: "#4f46e518", borderColor: "#4f46e540" },
-              ]}
-            >
-              <Feather
-                name={bonusActive ? "unlock" : "lock"}
-                size={13}
-                color={bonusActive ? "#22c55e" : "#4f46e5"}
-              />
-              <Text
-                style={[
-                  styles.gateBannerText,
-                  { color: bonusActive ? "#22c55e" : "#4f46e5" },
-                ]}
-              >
-                {bonusActive
-                  ? "Bonus unlocked! Tap START STUDYING to add one extra slot today."
-                  : liveGate.reason === "subject_limit"
-                    ? "Free plan: 2 subjects max. Tap to upgrade."
-                    : "Free plan: 10 topics per subject. Tap to upgrade."}
-              </Text>
-              {!bonusActive && (
-                <Feather name="chevron-right" size={13} color="#4f46e5" />
-              )}
-            </Pressable>
-          ) : null}
-
-          {showRewardedAdButton ? (
-            <Pressable
-              onPress={handleWatchAd}
-              disabled={watchingAd}
-              style={({ pressed }) => [
-                styles.adBanner,
-                { opacity: watchingAd ? 0.7 : pressed ? 0.85 : 1 },
-              ]}
-            >
-              {watchingAd ? (
-                <ActivityIndicator size="small" color="#f59e0b" />
-              ) : (
-                <Feather name="play-circle" size={16} color="#f59e0b" />
-              )}
-              <Text style={styles.adBannerText}>
-                {watchingAd ? "Loading ad…" : "Watch a short ad to unlock 1 extra slot today"}
-              </Text>
-            </Pressable>
-          ) : null}
-
           {error ? (
             <Text style={[styles.errorBanner, { color: colors.destructive }]}>
               {error}
@@ -340,6 +303,81 @@ export default function NewTopicScreen() {
           />
         </View>
       </KeyboardAwareScrollView>
+
+      {/* ── Limit modal ────────────────────────────────────────────────────── */}
+      <Modal
+        visible={limitModal !== null}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setLimitModal(null)}
+        statusBarTranslucent
+      >
+        <View style={styles.modalOverlay}>
+          <View style={[styles.modalCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
+            {/* Close button */}
+            <Pressable
+              onPress={() => setLimitModal(null)}
+              style={({ pressed }) => [styles.modalClose, { opacity: pressed ? 0.6 : 1 }]}
+              hitSlop={8}
+            >
+              <Feather name="x" size={20} color={colors.mutedForeground} />
+            </Pressable>
+
+            {/* Icon */}
+            <View style={[styles.modalIconWrap, { backgroundColor: "#f59e0b18" }]}>
+              <Feather name="lock" size={26} color="#f59e0b" />
+            </View>
+
+            {/* Copy */}
+            <Text style={[styles.modalTitle, { color: colors.foreground }]}>
+              {modalTitle}
+            </Text>
+            <Text style={[styles.modalSubtitle, { color: colors.mutedForeground }]}>
+              {modalSubtitle}
+            </Text>
+
+            {/* Ad error */}
+            {adError ? (
+              <Text style={[styles.adErrorText, { color: colors.destructive }]}>
+                {adError}
+              </Text>
+            ) : null}
+
+            {/* Watch Ad button */}
+            <Pressable
+              onPress={handleWatchAdAndProceed}
+              disabled={watchingAd}
+              style={({ pressed }) => [
+                styles.modalPrimaryBtn,
+                { backgroundColor: colors.primary, opacity: watchingAd || pressed ? 0.75 : 1 },
+              ]}
+            >
+              {watchingAd ? (
+                <ActivityIndicator size="small" color="#fff" />
+              ) : (
+                <Feather name="play-circle" size={18} color="#fff" />
+              )}
+              <Text style={styles.modalPrimaryBtnText}>
+                {watchingAd ? "Loading ad…" : "Watch Ad"}
+              </Text>
+            </Pressable>
+
+            {/* Upgrade to Pro button */}
+            <Pressable
+              onPress={handleUpgradeToPro}
+              style={({ pressed }) => [
+                styles.modalSecondaryBtn,
+                { borderColor: colors.border, opacity: pressed ? 0.7 : 1 },
+              ]}
+            >
+              <Feather name="star" size={16} color={colors.foreground} />
+              <Text style={[styles.modalSecondaryBtnText, { color: colors.foreground }]}>
+                Upgrade to Pro
+              </Text>
+            </Pressable>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -373,35 +411,6 @@ const styles = StyleSheet.create({
   form: {
     gap: 16,
     marginTop: 8,
-  },
-  gateBanner: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-    padding: 12,
-    borderRadius: 12,
-    borderWidth: 1,
-  },
-  gateBannerText: {
-    fontFamily: "Inter_500Medium",
-    fontSize: 13,
-    flex: 1,
-  },
-  adBanner: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 10,
-    padding: 14,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: "#f59e0b40",
-    backgroundColor: "#f59e0b14",
-  },
-  adBannerText: {
-    fontFamily: "Inter_600SemiBold",
-    fontSize: 13,
-    flex: 1,
-    color: "#f59e0b",
   },
   errorBanner: {
     fontFamily: "Inter_500Medium",
@@ -459,5 +468,85 @@ const styles = StyleSheet.create({
   avatarText: {
     fontFamily: "Inter_700Bold",
     fontSize: 10,
+  },
+
+  // ── Modal ─────────────────────────────────────────────────────────────────
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.55)",
+    justifyContent: "center",
+    alignItems: "center",
+    paddingHorizontal: 24,
+  },
+  modalCard: {
+    width: "100%",
+    maxWidth: 360,
+    borderRadius: 24,
+    borderWidth: 1,
+    padding: 28,
+    alignItems: "center",
+    gap: 12,
+  },
+  modalClose: {
+    position: "absolute",
+    top: 16,
+    right: 16,
+    padding: 4,
+  },
+  modalIconWrap: {
+    width: 60,
+    height: 60,
+    borderRadius: 30,
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 4,
+  },
+  modalTitle: {
+    fontFamily: "Inter_700Bold",
+    fontSize: 20,
+    letterSpacing: -0.4,
+    textAlign: "center",
+  },
+  modalSubtitle: {
+    fontFamily: "Inter_500Medium",
+    fontSize: 14,
+    textAlign: "center",
+    lineHeight: 20,
+  },
+  adErrorText: {
+    fontFamily: "Inter_500Medium",
+    fontSize: 13,
+    textAlign: "center",
+    marginTop: 2,
+  },
+  modalPrimaryBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    width: "100%",
+    height: 50,
+    borderRadius: 14,
+    marginTop: 8,
+  },
+  modalPrimaryBtnText: {
+    fontFamily: "Inter_700Bold",
+    fontSize: 15,
+    color: "#fff",
+    letterSpacing: 0.2,
+  },
+  modalSecondaryBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    width: "100%",
+    height: 48,
+    borderRadius: 14,
+    borderWidth: 1,
+  },
+  modalSecondaryBtnText: {
+    fontFamily: "Inter_600SemiBold",
+    fontSize: 15,
   },
 });
